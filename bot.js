@@ -444,13 +444,43 @@ bot.callbackQuery("option_1", async (ctx) => {
 
 // هندلر گزینه 2
 bot.callbackQuery("option_2", async (ctx) => {
-  await ctx.api.callbackQuery("my_games_list", ctx);
+  const userId = ctx.from.id;
+
+  const result = await pool.query(
+    `SELECT games.clean_title, games.id 
+     FROM user_games 
+     JOIN games ON user_games.game_id = games.id 
+     WHERE user_games.user_id = (SELECT id FROM users WHERE telegram_id = $1)`,
+    [userId]
+  );
+
+  if (result.rows.length === 0) {
+    await ctx.reply("❌ شما هیچ بازی‌ای انتخاب نکرده‌اید.");
+  } else {
+    const keyboard = new InlineKeyboard();
+    result.rows.forEach((row) => {
+      keyboard.text(row.clean_title, `remove_game:${row.id}`).row();
+    });
+
+    await ctx.reply(
+      "🕹️ لیست بازی‌های انتخابی شما:\n(با کلیک بر روی نام هر بازی، آن را از لیست خود حذف کنید)",
+      { reply_markup: keyboard }
+    );
+  }
+  
   await ctx.answerCallbackQuery();
 });
 
 // هندلر گزینه 3
 bot.callbackQuery("option_3", async (ctx) => {
-  await ctx.api.callbackQuery("select_console", ctx);
+  const keyboard = new InlineKeyboard()
+    .text("PS4", "console:ps4")
+    .text("PS5", "console:ps5")
+    .row();
+
+  await ctx.reply("🎮 لطفاً کنسول مورد نظر خود را انتخاب کنید:", {
+    reply_markup: keyboard,
+  });
   await ctx.answerCallbackQuery();
 });
 
