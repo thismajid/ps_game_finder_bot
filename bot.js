@@ -1,0 +1,408 @@
+const { Bot, InlineKeyboard, session } = require("grammy");
+const { Pool } = require("pg");
+const { v4: uuidv4 } = require("uuid");
+const { FileAdapter } = require("@grammyjs/storage-file");
+require("dotenv").config();
+
+// اتصال به دیتابیس PostgreSQL
+const pool = new Pool({
+  user: process.env.DB_USER,
+  host: process.env.DB_HOST,
+  database: process.env.DB_NAME,
+  password: process.env.DB_PASSWORD,
+  port: process.env.DB_PORT,
+});
+
+const bot = new Bot(process.env.BOT_TOKEN);
+
+// اضافه کردن middleware session
+bot.use(
+  session({
+    initial: () => ({ selectedGameToRemove: null }),
+    storage: new FileAdapter(),
+  })
+);
+
+// تعریف کانال‌ها
+const requiredChannels = [
+  { id: "-1001069711199", invite_link: "https://t.me/+SpQ0e29I2d05Yzg0" },
+  { id: "-1001010895977", invite_link: "https://t.me/+PEEMaXuNHvpcoPcU" },
+  { id: "-1001119154763", invite_link: "https://t.me/+ihfK56m0tckwODM0" },
+  { id: "-1001056044991", invite_link: "https://t.me/+_WbXvrPeM6RmNWQ0" },
+  { id: "-1001219426374", invite_link: "https://t.me/+PLvYzP0XwGs1Nzdk" },
+];
+
+// ایجاد جداول دیتابیس
+async function createTables() {
+  try {
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS users (
+        id SERIAL PRIMARY KEY,
+        telegram_id BIGINT UNIQUE NOT NULL,
+        first_name TEXT NOT NULL,
+        last_name TEXT,
+        username TEXT,
+        joined_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      );
+    `);
+
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS games (
+        id SERIAL PRIMARY KEY,
+        clean_title TEXT NOT NULL UNIQUE
+      );
+    `);
+
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS user_games (
+        id SERIAL PRIMARY KEY,
+        user_id INTEGER NOT NULL,
+        game_id INTEGER NOT NULL,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
+        FOREIGN KEY (game_id) REFERENCES games(id) ON DELETE CASCADE
+      );
+    `);
+
+    console.log("✅ جداول ایجاد یا بررسی شدند.");
+  } catch (error) {
+    console.error("❌ خطا در ایجاد جداول:", error);
+  }
+}
+
+// بررسی عضویت در کانال‌ها
+async function checkMembership(userId) {
+  let notJoinedChannels = [];
+  for (const channel of requiredChannels) {
+    try {
+      const chatMember = await bot.api.getChatMember(channel.id, userId);
+      if (["left", "kicked"].includes(chatMember.status)) {
+        const chatInfo = await bot.api.getChat(channel.id);
+        notJoinedChannels.push({
+          title: chatInfo.title,
+          link: channel.invite_link || `https://t.me/${chatInfo.username}`,
+        });
+      }
+    } catch (error) {
+      console.log(`خطا در بررسی کانال ${channel.id}:`, error.message);
+    }
+  }
+  return notJoinedChannels;
+}
+
+
+// اصلاح دستور استارت
+bot.command("start", async (ctx) => {
+  const user = ctx.from;
+  try {
+    await pool.query(
+      `INSERT INTO users (telegram_id, first_name, last_name, username)
+       VALUES ($1, $2, $3, $4)
+       ON CONFLICT (telegram_id) DO UPDATE
+       SET first_name = EXCLUDED.first_name,
+           last_name = EXCLUDED.last_name,
+           username = EXCLUDED.username;`,
+      [user.id, user.first_name, user.last_name || null, user.username || null]
+    );
+
+    // بررسی عضویت در کانال‌ها
+    const notJoinedChannels = await checkMembership(user.id);
+    if (notJoinedChannels.length > 0) {
+      let inviteMessage =
+        "❌ لطفاً ابتدا در کانال‌های زیر عضو شوید:\n\n" +
+        notJoinedChannels
+          .map((channel) => `🔹 [${channel.title}](${channel.link})`)
+          .join("\n");
+
+      await ctx.reply(inviteMessage, { parse_mode: "Markdown" });
+      return;
+    }
+
+    await ctx.reply(`سلام ${user.first_name}! 👋 خوش اومدی.`);
+    await showMenu(ctx); // نمایش منو با استفاده از تابع جدید
+  } catch (error) {
+    console.error("❌ خطا در ذخیره اطلاعات کاربر:", error);
+    await ctx.reply("مشکلی پیش آمد. لطفاً دوباره امتحان کن.");
+  }
+});
+
+// تعریف تابع نمایش منو
+async function showMenu(ctx) {
+  const keyboard = new InlineKeyboard()
+    .text("🎮 جستجوی بازی", "search_games")
+    .row()
+    .text("📋 لیست بازی‌های من", "my_games_list")
+    .row()
+    .text("❓ آموزش استفاده از ربات", "tutorial");
+    
+  await ctx.reply("🎮 به ربات خوش آمدید. لطفاً یکی از گزینه‌های زیر را انتخاب کنید:", {
+    reply_markup: keyboard
+  });
+}
+
+
+// دستور منو
+bot.command("menu", async (ctx) => {
+  await showMenu(ctx);
+});
+
+// ✅ دریافت بازی‌های انتخاب‌شده
+bot.command("my_games", async (ctx) => {
+  const userId = ctx.from.id;
+
+  const result = await pool.query(
+    `SELECT games.clean_title, games.id 
+     FROM user_games 
+     JOIN games ON user_games.game_id = games.id 
+     WHERE user_games.user_id = (SELECT id FROM users WHERE telegram_id = $1)`,
+    [userId]
+  );
+
+  if (result.rows.length === 0) {
+    return await ctx.reply("❌ شما هیچ بازی‌ای انتخاب نکرده‌اید.");
+  }
+
+  const keyboard = new InlineKeyboard();
+  result.rows.forEach((row) => {
+    keyboard.text(row.clean_title, `remove_game:${row.id}`).row();
+  });
+
+  await ctx.reply(
+    "🕹️ لیست بازی‌های انتخابی شما:\n(با کلیک بر روی نام هر بازی، آن را از لیست خود حذف کنید)",
+    { reply_markup: keyboard }
+  );
+});
+
+// ارسال دکمه‌های انتخاب کنسول
+bot.command("select_console", async (ctx) => {
+  const keyboard = new InlineKeyboard()
+    .text("🎮 PS4", "console:ps4")
+    .text("🎮 PS5", "console:ps5")
+    .row();
+
+  await ctx.reply("🎮 لطفاً کنسول مورد نظر خود را انتخاب کنید:", {
+    reply_markup: keyboard,
+  });
+});
+
+bot.callbackQuery(/^console:(ps4|ps5)$/, async (ctx) => {
+  const selectedConsole = ctx.match[1]; // دریافت "ps4" یا "ps5"
+  const priceColumn = selectedConsole === "ps4" ? "price_ps4" : "price_ps5"; // تعیین ستون مناسب
+  const userId = ctx.from.id;
+
+  try {
+    // دریافت لیست بازی‌های انتخاب‌شده‌ی کاربر
+    const gamesResult = await pool.query(
+      `SELECT games.id 
+       FROM user_games 
+       JOIN games ON user_games.game_id = games.id 
+       WHERE user_games.user_id = (SELECT id FROM users WHERE telegram_id = $1)`,
+      [userId]
+    );
+
+    if (gamesResult.rows.length === 0) {
+      return await ctx.reply("❌ شما هیچ بازی‌ای انتخاب نکرده‌اید.");
+    }
+
+    const gameIds = gamesResult.rows.map((row) => row.id);
+
+    // چک کنیم که آرایه خالی نباشد و اعداد صحیح باشند
+    if (gameIds.length === 0) {
+      return await ctx.reply("❌ شما هیچ بازی‌ای انتخاب نکرده‌اید.");
+    }
+
+    // جستجوی پست‌های مرتبط با بازی‌ها و کنسول انتخابی
+    const postsResult = await pool.query(
+      `SELECT p.content 
+       FROM games_posts 
+       JOIN posts p ON p.id = games_posts.post_id 
+       WHERE game_id = ANY($1) 
+       AND ${priceColumn} IS NOT NULL 
+       ORDER BY created_at DESC 
+       LIMIT 10`,
+      [gameIds] // ارسال آرایه به عنوان پارامتر
+    );
+
+    if (postsResult.rows.length === 0) {
+      return await ctx.reply("❌ هیچ پستی برای بازی‌های شما یافت نشد.");
+    }
+
+    for (const post of postsResult.rows) {
+      await ctx.reply(`📝 ${post.content}`);
+    }
+
+    // 🛑 حذف لیست بازی‌های کاربر از دیتابیس
+    await pool.query(
+      `DELETE FROM user_games 
+      WHERE user_id = (SELECT id FROM users WHERE telegram_id = $1)`,
+      [userId]
+    );
+
+    await ctx.reply("✅ لیست بازی‌های انتخابی شما پاک شد. می‌توانید دوباره جستجو کنید.");
+  } catch (error) {
+    console.error("❌ خطا در دریافت پست‌ها:", error);
+    await ctx.reply("مشکلی پیش آمد. لطفاً دوباره امتحان کنید.");
+  }
+});
+
+// ✅ هندل حذف بازی
+bot.callbackQuery(/^remove_game:(\d+)$/, async (ctx) => {
+  const gameId = ctx.match[1];
+  const userId = ctx.from.id;
+
+  await pool.query(
+    "DELETE FROM user_games WHERE user_id = (SELECT id FROM users WHERE telegram_id = $1) AND game_id = $2",
+    [userId, gameId]
+  );
+
+  await ctx.answerCallbackQuery();
+  await ctx.reply("✅ بازی از لیست شما حذف شد.");
+});
+
+// اضافه کردن هندلر برای دکمه جستجوی بازی
+bot.callbackQuery("search_games", async (ctx) => {
+  await ctx.reply("🎮 لطفاً نام بازی مورد نظر خود را وارد کنید:");
+  await ctx.answerCallbackQuery();
+});
+
+// اضافه کردن هندلر برای دکمه لیست بازی‌ها
+bot.callbackQuery("my_games_list", async (ctx) => {
+  // اجرای همان کد my_games
+  const userId = ctx.from.id;
+
+  const result = await pool.query(
+    `SELECT games.clean_title, games.id 
+     FROM user_games 
+     JOIN games ON user_games.game_id = games.id 
+     WHERE user_games.user_id = (SELECT id FROM users WHERE telegram_id = $1)`,
+    [userId]
+  );
+
+  if (result.rows.length === 0) {
+    await ctx.reply("❌ شما هیچ بازی‌ای انتخاب نکرده‌اید.");
+  } else {
+    const keyboard = new InlineKeyboard();
+    result.rows.forEach((row) => {
+      keyboard.text(row.clean_title, `remove_game:${row.id}`).row();
+    });
+
+    await ctx.reply(
+      "🕹️ لیست بازی‌های انتخابی شما:\n(با کلیک بر روی نام هر بازی، آن را از لیست خود حذف کنید)",
+      { reply_markup: keyboard }
+    );
+  }
+  
+  await ctx.answerCallbackQuery();
+});
+
+// ✅ جستجوی بازی‌ها
+bot.on("message:text", async (ctx) => {
+  const userId = ctx.from.id;
+  const searchQuery = ctx.message.text.trim();
+
+  // بررسی عضویت در کانال‌ها
+  const notJoinedChannels = await checkMembership(userId);
+  if (notJoinedChannels.length > 0) {
+    let inviteMessage =
+      "❌ لطفاً ابتدا در کانال‌های زیر عضو شوید:\n\n" +
+      notJoinedChannels
+        .map((channel) => `🔹 [${channel.title}](${channel.link})`)
+        .join("\n");
+
+    await ctx.reply(inviteMessage, { parse_mode: "Markdown" });
+    return;
+  }
+
+  // بررسی تعداد بازی‌های انتخاب شده
+  const gamesCount = await pool.query(
+    `SELECT COUNT(*) FROM user_games 
+     WHERE user_id = (SELECT id FROM users WHERE telegram_id = $1)`,
+    [userId]
+  );
+
+  if (gamesCount.rows[0].count >= 10) {
+    await ctx.reply("❌ شما نمی‌توانید بیش از 10 بازی انتخاب کنید. برای تغییر لیست از دستور /my_games استفاده کنید.");
+    return;
+  }
+
+  // جستجوی بازی در دیتابیس
+  const result = await pool.query(
+    "SELECT id, clean_title FROM games WHERE clean_title ILIKE $1 LIMIT 10",
+    [`%${searchQuery}%`]
+  );
+
+  if (result.rows.length === 0) {
+    return ctx.reply("❌ هیچ بازی‌ای با این نام پیدا نشد.");
+  }
+
+  const keyboard = new InlineKeyboard();
+  result.rows.forEach((row) => {
+    keyboard.text(row.clean_title, `select_game:${row.id}`).row();
+  });
+
+  await ctx.reply("🔎 لطفاً بازی موردنظر خود را انتخاب کنید:", {
+    reply_markup: keyboard,
+  });
+});
+
+// ✅ ثبت انتخاب بازی
+bot.callbackQuery(/^select_game:(\d+)$/, async (ctx) => {
+  const selectedGameId = ctx.match[1];
+  const userId = ctx.from.id;
+
+  // دریافت user_id از جدول users
+  const user = await pool.query(
+    "SELECT id FROM users WHERE telegram_id = $1",
+    [userId]
+  );
+  if (user.rows.length === 0) {
+    return await ctx.reply(
+      "❌ اطلاعات شما در ربات ثبت نشده! لطفاً با /start شروع کنید."
+    );
+  }
+
+  const internalId = user.rows[0].id;
+
+  // ذخیره انتخاب بازی در دیتابیس
+  await pool.query(
+    "INSERT INTO user_games (user_id, game_id) VALUES ($1, $2) ON CONFLICT DO NOTHING",
+    [internalId, selectedGameId]
+  );
+
+  // دریافت عنوان بازی برای نمایش به کاربر
+  const game = await pool.query(
+    "SELECT clean_title FROM games WHERE id = $1",
+    [selectedGameId]
+  );
+  const gameTitle = game.rows[0].clean_title;
+
+  await ctx.answerCallbackQuery();
+  await ctx.reply(`✅ بازی **${gameTitle}** به لیست شما اضافه شد.`, {
+    parse_mode: "Markdown",
+  });
+
+  await ctx.reply(
+    "✅ بازی به لیست شما اضافه شد.\n\n" +
+    "🎮 می‌توانید:\n" +
+    "- نام بازی دیگری را وارد کنید\n" +
+    "- با دستور /my_games لیست بازی‌های خود را ببینید\n" +
+    "- با دستور /select_console کنسول مورد نظر را انتخاب کنید"
+  );
+});
+
+bot.callbackQuery("tutorial", async (ctx) => {
+  // آدرس ویدیو آموزشی را اینجا قرار دهید
+  const videoFileId = "YOUR_VIDEO_FILE_ID"; 
+  await ctx.reply("🎥 ویدیوی آموزش استفاده از ربات:");
+  await ctx.replyWithVideo(videoFileId, {
+    caption: "راهنمای استفاده از ربات:\n\n" +
+            "1️⃣ ابتدا نام بازی مورد نظر خود را وارد کنید\n" +
+            "2️⃣ از لیست پیشنهادی، بازی مورد نظر را انتخاب کنید\n" +
+            "3️⃣ می‌توانید تا 10 بازی به لیست خود اضافه کنید\n" +
+            "4️⃣ با دستور /select_console کنسول مورد نظر را انتخاب کنید\n" +
+            "5️⃣ پست‌های مرتبط با بازی‌های شما نمایش داده خواهد شد"
+  });
+});
+
+// شروع ربات
+createTables().then(() => bot.start());
