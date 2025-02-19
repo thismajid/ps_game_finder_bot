@@ -30,7 +30,7 @@ const requiredChannels = [
   { id: "-1001119154763", invite_link: "https://t.me/+ihfK56m0tckwODM0" },
   { id: "-1001056044991", invite_link: "https://t.me/+_WbXvrPeM6RmNWQ0" },
   { id: "-1001219426374", invite_link: "https://t.me/+PLvYzP0XwGs1Nzdk" },
-  { id: "-1001066763571", invite_link: "https://t.me/CA_Storre" }
+  { id: "-1001066763571", invite_link: "@CA_Storre" },
 ];
 
 // ایجاد جداول دیتابیس
@@ -143,11 +143,11 @@ async function showJoinMessage(ctx, notJoinedChannels) {
 // تعریف تابع نمایش منو
 async function showMenu(ctx) {
   const keyboard = new InlineKeyboard()
-    .text("🎮 جستجوی بازی", "search_games")
+    .text("🎲 جستجوی بازی و اکانت موردنظر", "search_games")
     .row()
     .text("📋 لیست بازی‌های من", "my_games_list")
     .row()
-    .text("❓ آموزش استفاده از ربات", "tutorial");
+    .text("💡آموزش استفاده از ربات", "tutorial");
     
   await ctx.reply("🎮 به ربات خوش آمدید. لطفاً یکی از گزینه‌های زیر را انتخاب کنید:", {
     reply_markup: keyboard
@@ -214,8 +214,8 @@ bot.command("my_games", async (ctx) => {
 // ارسال دکمه‌های انتخاب کنسول
 bot.command("select_console", async (ctx) => {
   const keyboard = new InlineKeyboard()
-    .text("🎮 PS4", "console:ps4")
-    .text("🎮 PS5", "console:ps5")
+    .text("PS4", "console:ps4")
+    .text("PS5", "console:ps5")
     .row();
 
   await ctx.reply("🎮 لطفاً کنسول مورد نظر خود را انتخاب کنید:", {
@@ -266,7 +266,7 @@ bot.callbackQuery(/^console:(ps4|ps5)$/, async (ctx) => {
     }
 
     for (const post of postsResult.rows) {
-      await ctx.reply(`📝 ${post.content}`);
+      await ctx.reply(post.content);
     }
 
     // 🛑 حذف لیست بازی‌های کاربر از دیتابیس
@@ -299,7 +299,7 @@ bot.callbackQuery(/^remove_game:(\d+)$/, async (ctx) => {
 
 // اضافه کردن هندلر برای دکمه جستجوی بازی
 bot.callbackQuery("search_games", async (ctx) => {
-  await ctx.reply("🎮 لطفاً نام بازی مورد نظر خود را وارد کنید:");
+  await ctx.reply("🚩 لطفاً نام بازی مورد نظر خود را وارد کنید:");
   await ctx.answerCallbackQuery();
 });
 
@@ -378,7 +378,7 @@ bot.on("message:text", async (ctx) => {
     keyboard.text(row.clean_title, `select_game:${row.id}`).row();
   });
 
-  await ctx.reply("🔎 لطفاً بازی موردنظر خود را انتخاب کنید:", {
+  await ctx.reply("🔎 لطفاً بازی موردنظرتون رو از لیست انتخاب کنید:", {
     reply_markup: keyboard,
   });
 });
@@ -419,13 +419,39 @@ bot.callbackQuery(/^select_game:(\d+)$/, async (ctx) => {
     parse_mode: "Markdown",
   });
 
+  // ایجاد کیبورد با سه گزینه
+  const keyboard = new InlineKeyboard()
+    .text("1) اسم بازی دیگه‌ای رو وارد کنید", "option_1")
+    .row()
+    .text("2) لیست بازیهای انتخابیتون رو ببینید", "option_2")
+    .row()
+    .text("3) کنسولی که میخواید براش بازی تهیه کنید رو انتخاب کنید", "option_3");
+
   await ctx.reply(
-    "✅ بازی به لیست شما اضافه شد.\n\n" +
-    "🎮 می‌توانید:\n" +
-    "- نام بازی دیگری را وارد کنید\n" +
-    "- با دستور /my_games لیست بازی‌های خود را ببینید\n" +
-    "- با دستور /select_console کنسول مورد نظر را انتخاب کنید"
+    " بازی به لیستتون اضافه شد🙂‍↕️✔️\n\n" +
+    "الان میتونید :👇🏻",
+    {
+      reply_markup: keyboard
+    }
   );
+});
+
+// هندلر گزینه 1
+bot.callbackQuery("option_1", async (ctx) => {
+  await ctx.reply("🚩 لطفاً نام بازی مورد نظر خود را وارد کنید:");
+  await ctx.answerCallbackQuery();
+});
+
+// هندلر گزینه 2
+bot.callbackQuery("option_2", async (ctx) => {
+  await ctx.api.callbackQuery("my_games_list", ctx);
+  await ctx.answerCallbackQuery();
+});
+
+// هندلر گزینه 3
+bot.callbackQuery("option_3", async (ctx) => {
+  await ctx.api.callbackQuery("select_console", ctx);
+  await ctx.answerCallbackQuery();
 });
 
 bot.callbackQuery("tutorial", async (ctx) => {
