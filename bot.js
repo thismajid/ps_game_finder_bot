@@ -30,7 +30,7 @@ const requiredChannels = [
   { id: "-1001119154763", invite_link: "https://t.me/+ihfK56m0tckwODM0" },
   { id: "-1001056044991", invite_link: "https://t.me/+_WbXvrPeM6RmNWQ0" },
   { id: "-1001219426374", invite_link: "https://t.me/+PLvYzP0XwGs1Nzdk" },
-  { id: "-1001066763571", invite_link: "@CA_Storre" }
+  { id: "-1001066763571", invite_link: "https://t.me/CA_Storre" }
 ];
 
 // ایجاد جداول دیتابیس
