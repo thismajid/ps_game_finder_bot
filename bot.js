@@ -108,23 +108,36 @@ bot.command("start", async (ctx) => {
     // بررسی عضویت در کانال‌ها
     const notJoinedChannels = await checkMembership(user.id);
     if (notJoinedChannels.length > 0) {
-      let inviteMessage =
-        "❌ لطفاً ابتدا در کانال‌های زیر عضو شوید:\n\n" +
-        notJoinedChannels
-          .map((channel) => `🔹 [${channel.title}](${channel.link})`)
-          .join("\n");
-
-      await ctx.reply(inviteMessage, { parse_mode: "Markdown" });
+      await showJoinMessage(ctx, notJoinedChannels);
       return;
     }
 
     await ctx.reply(`سلام ${user.first_name}! 👋 خوش اومدی.`);
-    await showMenu(ctx); // نمایش منو با استفاده از تابع جدید
+    await showMenu(ctx);
   } catch (error) {
     console.error("❌ خطا در ذخیره اطلاعات کاربر:", error);
     await ctx.reply("مشکلی پیش آمد. لطفاً دوباره امتحان کن.");
   }
 });
+
+// تابع نمایش پیام عضویت در کانال‌ها
+async function showJoinMessage(ctx, notJoinedChannels) {
+  const keyboard = new InlineKeyboard();
+  
+  // اضافه کردن دکمه برای هر کانال
+  notJoinedChannels.forEach(channel => {
+    keyboard.url(`📢 ${channel.title}`, channel.link).row();
+  });
+  
+  // اضافه کردن دکمه "عضو شدم"
+  keyboard.text("✅ عضو شدم", "check_membership");
+
+  await ctx.reply(
+    "❌ لطفاً ابتدا در کانال‌های زیر عضو شوید و سپس روی دکمه «عضو شدم» کلیک کنید:",
+    { reply_markup: keyboard }
+  );
+}
+
 
 // تعریف تابع نمایش منو
 async function showMenu(ctx) {
@@ -140,6 +153,30 @@ async function showMenu(ctx) {
   });
 }
 
+// هندلر دکمه "عضو شدم"
+bot.callbackQuery("check_membership", async (ctx) => {
+  const userId = ctx.from.id;
+  
+  // بررسی مجدد عضویت
+  const notJoinedChannels = await checkMembership(userId);
+  
+  if (notJoinedChannels.length === 0) {
+    // اگر در همه کانال‌ها عضو شده باشد
+    await ctx.answerCallbackQuery({ 
+      text: "✅ عضویت شما تایید شد!",
+      show_alert: true
+    });
+    await ctx.reply(`سلام ${ctx.from.first_name}! 👋 خوش اومدی.`);
+    await showMenu(ctx);
+  } else {
+    // اگر هنوز در همه کانال‌ها عضو نشده باشد
+    await ctx.answerCallbackQuery({ 
+      text: "❌ هنوز در همه کانال‌ها عضو نشده‌اید!",
+      show_alert: true 
+    });
+    await showJoinMessage(ctx, notJoinedChannels);
+  }
+});
 
 // دستور منو
 bot.command("menu", async (ctx) => {
