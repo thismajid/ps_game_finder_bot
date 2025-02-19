@@ -383,7 +383,6 @@ bot.on("message:text", async (ctx) => {
   });
 });
 
-// ✅ ثبت انتخاب بازی
 bot.callbackQuery(/^select_game:(\d+)$/, async (ctx) => {
   const selectedGameId = ctx.match[1];
   const userId = ctx.from.id;
@@ -401,9 +400,20 @@ bot.callbackQuery(/^select_game:(\d+)$/, async (ctx) => {
 
   const internalId = user.rows[0].id;
 
+  // چک کردن تکراری نبودن بازی
+  const existingGame = await pool.query(
+    "SELECT 1 FROM user_games WHERE user_id = $1 AND game_id = $2",
+    [internalId, selectedGameId]
+  );
+
+  if (existingGame.rows.length > 0) {
+    await ctx.answerCallbackQuery();
+    return await ctx.reply("⚠️ این بازی قبلاً در لیست شما ثبت شده است!");
+  }
+
   // ذخیره انتخاب بازی در دیتابیس
   await pool.query(
-    "INSERT INTO user_games (user_id, game_id) VALUES ($1, $2) ON CONFLICT DO NOTHING",
+    "INSERT INTO user_games (user_id, game_id) VALUES ($1, $2)",
     [internalId, selectedGameId]
   );
 
