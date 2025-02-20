@@ -67,6 +67,21 @@ const editions = [
   "Deluxe Party Edition",
   "Deluxe Edition",
   "PS4 Edition",
+  "Bundle",
+  "Pack",
+  "Vault",
+  "Cross-gen",
+  "Crossgen",
+  "Launch",
+  "Full game",
+  "Enhanced",
+  "Special",
+  "Legacy",
+  "Next Level",
+  "Champions",
+  "Director's Cut",
+  "Collection",
+  "Trilogy"
 ].map((edition) => new RegExp(`\\s*[-–]?\\s*${edition}`, "g"));
 
 function shouldSkipLine(line) {
@@ -154,10 +169,25 @@ function cleanGameTitle(title) {
   }
 
   let cleanTitle = title
+    // حذف کاراکترهای اضافی و یکسان‌سازی فاصله‌ها
+    .replace(/\s+/g, ' ')
+    .trim()
     .replace(
       /^-=\-=\-=\-=\-=\-=\-=\-=\-$|^=\-=\-=\-=\-=\-=\-=\-=$|^—\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-—$|^—————————$/,
       "$1"
     )
+    // یکسان‌سازی نام‌های خاص
+    .replace(/FIFA\s*(\d{2})/i, 'FIFA $1')
+    .replace(/Battlefield\s*/i, 'Battlefield ')
+    .replace(/BATMAN/i, 'Batman')
+    .replace(/ACE\s*COMBAT\s*7/i, 'ACE COMBAT 7')
+    .replace(/Assassin['']s\s*Creed/i, "Assassin's Creed")
+    .replace(/DRAGON\s*BALL/i, 'Dragon Ball')
+    // حذف پسوندهای اضافی
+    .replace(/\s*(Bundle|Pack|Vault|Cross-?gen|Launch|Full game|Enhanced|Special)(?:\s|$)/gi, '')
+    .replace(/\s*(?:Game of the Year|Champions|Director's Cut)(?:\s+Edition)?/gi, '')
+    .replace(/\s*\[.*?\]/g, '')
+    .replace(/\s*\(.*?\)/g, '')
     .replace(/\s*\[\d+\]$/, "")
     .replace(/^(.*?)\s+per\s+PS\d+\s+e\s+PS\d+$/, "$1")
     .replace(/^(.*?)\s+for\s+PS\d+\s+and\s+PS\d+$/, "$1")
@@ -222,6 +252,9 @@ function cleanGameTitle(title) {
     .replace(/\s*Complete\s*/, " ")
     .replace(/^(.*?)\s*–\s*The Definitive Edition$/, "$1")
     .replace(/^(.*?)\s*–\s*The Definitive$/, "$1")
+    // حذف نسخه‌های خاص
+    .replace(/\s+-\s+(?:Trilogy|Collection)$/i, '')
+    .replace(/\s+(?:Legacy|Next Level)$/i, '')
     .replace(/[™®]/g, "")
     .replace(/\s*\[R[1-3]\]/g, "")
     .replace(/\s*\\\[R[1-3]\\\]/g, "")
@@ -252,7 +285,11 @@ function cleanGameTitle(title) {
     .replace(/\s+/g, " ")
     .replace(/^-=-=-=-=-=-=-=-=$|^=-=-=-=-=-=-=-=-=$|^—-----------------—$/, "")
     .replace(/\s*PlayStation4\s*/, " ")
-    .replace(/\s*PlayStation5\s*/, " ");
+    .replace(/\s*PlayStation5\s*/, " "
+      // یکسان‌سازی نهایی
+      .replace(/\s+/g, ' ')
+      .trim()
+    );
 
   editions.forEach((editionPattern) => {
     cleanTitle = cleanTitle.replace(editionPattern, "");
