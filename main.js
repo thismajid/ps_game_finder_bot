@@ -12,6 +12,7 @@ const INPUT_FILES = [
   process.env.FILE_PATH_3,
   process.env.FILE_PATH_4,
   process.env.FILE_PATH_5,
+  process.env.FILE_PATH_6,
 ].filter(Boolean);
 
 // Set برای نگهداری عناوین یونیک
