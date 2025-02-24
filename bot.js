@@ -1,512 +1,498 @@
-const { Bot, InlineKeyboard, session } = require("grammy");
-const { Pool } = require("pg");
-const { v4: uuidv4 } = require("uuid");
-const { FileAdapter } = require("@grammyjs/storage-file");
 require("dotenv").config();
+const fs = require("fs").promises;
+const { Client } = require("pg");
+const levenshtein = require("fast-levenshtein");
 
-// اتصال به دیتابیس PostgreSQL
-const pool = new Pool({
-  user: process.env.DB_USER,
-  host: process.env.DB_HOST,
-  database: process.env.DB_NAME,
-  password: process.env.DB_PASSWORD,
-  port: process.env.DB_PORT,
-});
+// Database configuration
+const client = new Client({ connectionString: process.env.DATABASE_URL });
 
-const bot = new Bot(process.env.BOT_TOKEN);
+// لیست فایل‌های ورودی
+const INPUT_FILES = [
+  process.env.FILE_PATH_1,
+  process.env.FILE_PATH_2,
+  process.env.FILE_PATH_3,
+  process.env.FILE_PATH_4,
+  process.env.FILE_PATH_5,
+  process.env.FILE_PATH_6,
+].filter(Boolean);
 
-// اضافه کردن middleware session
-bot.use(
-  session({
-    initial: () => ({ selectedGameToRemove: null }),
-    storage: new FileAdapter(),
-  })
-);
+// تنظیمات فازی
+const SIMILARITY_THRESHOLD = 0.8;
+const MAX_EDIT_DISTANCE = 3;
+const uniqueGames = new Set();
 
-// تعریف کانال‌ها
-const requiredChannels = [
-  { id: "-1001069711199", invite_link: "https://t.me/+SpQ0e29I2d05Yzg0" },
-  { id: "-1001010895977", invite_link: "https://t.me/+PEEMaXuNHvpcoPcU" },
-  { id: "-1001119154763", invite_link: "https://t.me/+ihfK56m0tckwODM0" },
-  { id: "-1001056044991", invite_link: "https://t.me/+_WbXvrPeM6RmNWQ0" },
-  { id: "-1001219426374", invite_link: "https://t.me/+PLvYzP0XwGs1Nzdk" },
-  { id: "-1001066763571", invite_link: "https://t.me/CA_Storre" },
-];
-
-// ایجاد جداول دیتابیس
 async function createTables() {
   try {
-    await pool.query(`
-      CREATE TABLE IF NOT EXISTS users (
-        id SERIAL PRIMARY KEY,
-        telegram_id BIGINT UNIQUE NOT NULL,
-        first_name TEXT NOT NULL,
-        last_name TEXT,
-        username TEXT,
-        joined_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-      );
-    `);
-
-    await pool.query(`
+    await client.query(`
+      CREATE EXTENSION IF NOT EXISTS pg_trgm;
+      
       CREATE TABLE IF NOT EXISTS games (
         id SERIAL PRIMARY KEY,
-        clean_title TEXT NOT NULL UNIQUE
-      );
-    `);
-
-    await pool.query(`
-      CREATE TABLE IF NOT EXISTS user_games (
-        id SERIAL PRIMARY KEY,
-        user_id INTEGER NOT NULL,
-        game_id INTEGER NOT NULL,
+        original_title TEXT NOT NULL,
+        clean_title TEXT NOT NULL,
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-        FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
-        FOREIGN KEY (game_id) REFERENCES games(id) ON DELETE CASCADE
+        UNIQUE(clean_title)
+      );
+      
+      CREATE INDEX games_clean_title_trgm_idx ON games 
+      USING GIN (clean_title gin_trgm_ops);
+
+      CREATE TABLE IF NOT EXISTS posts (
+        id INTEGER PRIMARY KEY,
+        content TEXT NOT NULL,
+        region TEXT,
+        price_ps4 INTEGER,
+        price_ps5 INTEGER,
+        source_file TEXT,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      );
+
+      CREATE TABLE IF NOT EXISTS games_posts (
+        game_id INTEGER REFERENCES games(id),
+        post_id INTEGER REFERENCES posts(id),
+        PRIMARY KEY (game_id, post_id)
       );
     `);
 
-    console.log("✅ جداول ایجاد یا بررسی شدند.");
+    console.log("Tables created successfully");
   } catch (error) {
-    console.error("❌ خطا در ایجاد جداول:", error);
+    console.error("Error creating tables:", error);
+    throw error;
   }
 }
 
-// بررسی عضویت در کانال‌ها
-async function checkMembership(userId) {
-  let notJoinedChannels = [];
-  for (const channel of requiredChannels) {
-    try {
-      const chatMember = await bot.api.getChatMember(channel.id, userId);
-      if (["left", "kicked"].includes(chatMember.status)) {
-        const chatInfo = await bot.api.getChat(channel.id);
-        notJoinedChannels.push({
-          title: chatInfo.title,
-          link: channel.invite_link || `https://t.me/${chatInfo.username}`,
-        });
+function shouldSkipLine(line) {
+  const normalizedLine = line
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase();
+
+  const skipPatterns = [
+    /^[\d\W]+$/, // خطوط فقط شامل اعداد یا علائم
+    /\b(?:demo|trial|beta|early access|account|dlc|season pass)\b/i,
+    /.{0,5}(http|www|\.com|\.ir|id:|number of post)/i,
+    /^\s*$/,
+    /^(سلام|ممنون|مجموعه|پلاس|همراه|اکانت)/,
+    /[=*]{4,}/,
+    /^[📥💰🔥❗️♻️✅🟢🎲🔻]/,
+  ];
+
+  return skipPatterns.some((pattern) => pattern.test(normalizedLine));
+}
+
+const editions = [
+  "Cross-Gen",
+  "Standard Edition",
+  "Gold Edition",
+  "Legendary Edition",
+  "Complete Edition",
+  "Game of the Year Edition",
+  "Digital Deluxe Edition",
+  "Deluxe Party Edition",
+  "Deluxe Edition",
+  "PS4 Edition",
+  "Bundle",
+  "Pack",
+  "Vault",
+  "Cross-gen",
+  "Crossgen",
+  "Launch",
+  "Full game",
+  "Enhanced",
+  "Special",
+  "Legacy",
+  "Next Level",
+  "Director's Cut",
+  "Collection",
+  "Trilogy",
+].map((edition) => new RegExp(`\\s*[-–]?\\s*${edition}`, "g"));
+
+function cleanGameTitle(title) {
+  if (shouldSkipLine(title)) {
+    return null;
+  }
+
+  // Initial normalization
+  let cleanTitle = title
+    .replace(/\s+/g, " ") // Normalize spaces
+    .trim();
+
+  // Standardize common game titles
+  const titleMappings = {
+    "ACE COMBAT\\s*7\\s*SKIES\\s*UNKNOWN": "ACE COMBAT 7 SKIES UNKNOWN",
+    "ARK\\s*Survival\\s*Evolved(?:\\s*Explorer's)?": "ARK Survival Evolved",
+    "Assassin's\\s*Creed\\s*Chronicles(?:\\s*[-–]\\s*Trilogy)?":
+      "Assassin's Creed Chronicles",
+    "Assassin's\\s*Creed\\s*(?:IV|4)\\s*Black\\s*Flag":
+      "Assassin's Creed IV Black Flag",
+    "Batman(?:\\s*[:\\s])?\\s*Arkham\\s*Knight(?:\\s*\\d*)?":
+      "Batman Arkham Knight",
+    "Batman(?:\\s*[:\\s])?\\s*Arkham\\s*VR": "Batman Arkham VR",
+    "Batman(?:\\s*[:\\s])?\\s*Return\\s*to\\s*Arkham(?:\\s*Arkham\\s*(?:Asylum|City))?":
+      "Batman Return to Arkham",
+    "Battlefield\\s*(?:4|IV)(?:\\s*full\\s*game)?": "Battlefield 4",
+    "Battlefield\\s*V": "Battlefield V",
+    "Beyond(?:\\s*[:\\s])?\\s*Two\\s*Souls": "Beyond Two Souls",
+    "Bloodborne(?:\\s*(?:Game of the Year|The Old Hunters))?": "Bloodborne",
+    "Call\\s*of\\s*Duty(?:\\s*[:\\s])?\\s*Black\\s*Ops\\s*(?:III|3)(?:\\s*Zombies\\s*Chronicles)?":
+      "Call of Duty Black Ops III",
+    "Call\\s*of\\s*Duty(?:\\s*[:\\s])?\\s*Modern\\s*Warfare(?:\\s*(?:II|2|III|3))?":
+      "Call of Duty Modern Warfare",
+    "Crash\\s*Bandicoot\\s*4(?:\\s*[:\\s])?\\s*It's\\s*About\\s*Time":
+      "Crash Bandicoot 4",
+    "Crash\\s*Team\\s*Racing\\s*Nitro-Fueled(?:\\s*Nitros\\s*Oxide)?":
+      "Crash Team Racing Nitro-Fueled",
+    "Crysis\\s*(?:2|3|II|III)?(?:\\s*Remastered)?": "Crysis",
+  };
+
+  // Apply title mappings
+  for (const [pattern, replacement] of Object.entries(titleMappings)) {
+    const regex = new RegExp(pattern, "i");
+    if (regex.test(cleanTitle)) {
+      cleanTitle = replacement;
+      break;
+    }
+  }
+
+  cleanTitle = title
+    // حذف کاراکترهای اضافی و یکسان‌سازی فاصله‌ها
+    .replace(/\s+/g, " ")
+    .trim()
+    .replace(
+      /^-=\-=\-=\-=\-=\-=\-=\-=\-$|^=\-=\-=\-=\-=\-=\-=\-=$|^—\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-—$|^—————————$/,
+      "$1"
+    )
+    // یکسان‌سازی نام‌های خاص
+    .replace(/FIFA\s*(\d{2})/i, "FIFA $1")
+    .replace(/Battlefield\s*/i, "Battlefield ")
+    .replace(/BATMAN/i, "Batman")
+    .replace(/ACE\s*COMBAT\s*7/i, "ACE COMBAT 7")
+    .replace(/Assassin['']s\s*Creed/i, "Assassin's Creed")
+    .replace(/DRAGON\s*BALL/i, "Dragon Ball")
+    // حذف پسوندهای اضافی
+    .replace(
+      /\s*(Bundle|Pack|Vault|Cross-?gen|Launch|Full game|Enhanced|Special|Final Battle|Competition|Competizione|Competizioneerous|Revolution|Multi-Gen|Multi-Generation)(?:\s|$)/gi,
+      ""
+    )
+    .replace(/\s*(?:Game of the Year|Director's Cut)(?:\s+Edition)?/gi, "")
+    .replace(/\s*\[.*?\]/g, "")
+    .replace(/\s*\(.*?\)/g, "")
+    .replace(/\s*\[\d+\]$/, "")
+    .replace(/^(.*?)\s+per\s+PS\d+\s+e\s+PS\d+$/, "$1")
+    .replace(/^(.*?)\s+for\s+PS\d+\s+and\s+PS\d+$/, "$1")
+    .replace(/^(.*?)\s+–\s+PS\d+\s+and\s+PS\d+$/, "$1")
+    .replace(/^(.*?)\s+—\s+PS\d+\s+PS\d+$/, "$1")
+    .replace(/^(.*?)\s+–\s+PS\d+\s+og\s+PS\d+$/, "$1")
+    .replace(/^(.*?)\s+–\s+PS\d+\s+PS\d+$/, "$1")
+    .replace(/^(.*?)\s+pour\s+PS\d+\s+et\s+PS\d+$/, "$1")
+    .replace(/Part/gi, "part")
+    .replace(/Parte/gi, "part")
+    .replace(/parte/gi, "part")
+    .replace(/\bOf\b/, "of")
+    .replace(/^(.*?):\s*(.*)$/, "$1 $2")
+    .replace(/^(.*?)\s*: Remastered$/, "$1")
+    .replace(/^(.*?)\s*: Competition$/, "$1")
+    .replace(/^(.*?)\s*: Competizione$/, "$1")
+    .replace(/^(.*?)\s*: Competizioneerous$/, "$1")
+    .replace(/^(.*?)\s*: Traveler Edition$/, "$1")
+    .replace(/^(.*?)\s*: e Titanfall 2$/, "$1")
+    .replace(/^(.*?)\s*: ==Revolution$/, "$1")
+    .replace(/^(.*?)\s*–\s*The\s+Definitive$/, "$1")
+    .replace(/^(.*?)\s*–\s*Legend\s+Edition$/, "$1")
+    .replace(/^(.*?)\s*–\s*Standard\s+Eition$/, "$1")
+    .replace(/^(.*?)\s*–\s*Standard\s+Edition$/, "$1")
+    .replace(/^(.*?)\s*–\s*Traveler\s+Edition$/, "$1")
+    .replace(/^(.*?)\s*–\s*Enhanced\s+Edition$/, "$1")
+    .replace(/^(.*?)\s*–\s*Console\s+Edition$/, "$1")
+    .replace(/^(.*?)\s*–\s*Ultimate\s+Bundle$/, "$1")
+    .replace(/^(.*?)\s*–\s*Edition\s+Bundle$/, "$1")
+    .replace(/^(.*?)\s*–\s*Seventy\s+Edition$/, "$1")
+    .replace(/^(.*?)\s*–\s*Deluxe\s+Launch\s+Edition$/, "$1")
+    .replace(/^(.*?)\s*–\s*Game\s+of\s+the\s+Year$/, "$1")
+    .replace(/^(.*?)\s*–\s*Game\s+of\s+the\s+Year\s+Edition$/, "$1")
+    .replace(/^(.*?)\s*–\s*MVP\s+Edition$/, "$1")
+    .replace(/\|/, "")
+    .replace(/\s+Stand Alone$/, "")
+    .replace(/\s*\(Standalone\)$/, "")
+    .replace(/\s*Remake\s*/, " ")
+    .replace(/\s*\[15559\]\s*/, " ")
+    .replace(/\s*Console\s*/, " ")
+    .replace(/\s*PlayStation4\s*/, " ")
+    .replace(/\s*PlayStation4\s*/, " ")
+    .replace(/\s*Remastered\s*/, " ")
+    .replace(/\s*Digital\s*/, " ")
+    .replace(/\s*Ultimate\s*/, " ")
+    .replace(/\s*Ultimate pour\s*/, " ")
+    .replace(/\s*Ultimate pour\s*/, " ")
+    .replace(/\s*Legend Edition\s*/, " ")
+    .replace(/\s*SEASON UPDATE\s*/, " ")
+    .replace(/\s*Standardowa\s*/, " ")
+    .replace(/\bChampions Edition\b/, " ")
+    .replace(/@fullhacker2017\b/, " ")
+    .replace(/\bTOP GUN: Maverick\b/, " ")
+    .replace(/\s*1\) ToPS4Account\s*/, " ")
+    .replace(/\s*350 T\s*/, " ")
+    .replace(/\s*4\) Acc021\s*/, " ")
+    .replace(/\s*5\) Log Seller's\s*/, " ")
+    .replace(/\s*5\) PS GameShare\s*/, " ")
+    .replace(/\bVR MODE\b/, " ")
+    .replace(/\bPS4 & PS5\b/, " ")
+    .replace(/\bper\b/, " ")
+    .replace(/\bElite\b/, " ")
+    .replace(/\bThe\b/, " ")
+    .replace(/\bTHE\b/, " ")
+    .replace(/\bCOLLECTION\b/, " ")
+    .replace(/\s*Definitive\s*/, " ")
+    .replace(/\s*Premium\s*/, " ")
+    .replace(/\s*Premium\s*/, " ")
+    .replace(/\s*Deluxe\s*/, " ")
+    .replace(/\s*Standart\s*/, " ")
+    .replace(/\s*Standard pour\s*/, " ")
+    .replace(/\s*Standart\s*/, " ")
+    .replace(/\s*Edycja\s*/, " ")
+    .replace(/\s*Sürüm\s*/, " ")
+    .replace(/\s*Edicimn\s*/, " ")
+    .replace(/\s*Estandar\s*/, " ")
+    .replace(/\s*Standard\s*/, " ")
+    .replace(/\s*Edition\s*/, " ")
+    .replace(/\s*para\s*/, " ")
+    .replace(/\s*Standard\s*/, " ")
+    .replace(/\s*Gold\s*/, " ")
+    .replace(/\s*Legendary\s*/, " ")
+    .replace(/\s*Complete\s*/, " ")
+    .replace(/^(.*?)\s*–\s*The Definitive Edition$/, "$1")
+    .replace(/^(.*?)\s*–\s*The Definitive$/, "$1")
+    // حذف نسخه‌های خاص
+    .replace(/\s+-\s+(?:Trilogy|Collection)$/i, "")
+    .replace(/\s+(?:Legacy|Next Level)$/i, "")
+    .replace(/[™®]/g, "")
+    .replace(/\s*\[R[1-3]\]/g, "")
+    .replace(/\s*\\\[R[1-3]\\\]/g, "")
+    .replace(/^(.*?)\s*\(PS\d+™?[^)]*\)$/, "$1")
+    .replace(/^(.*?)(\s+PS\d+.*)?$/, "$1")
+    .replace(/\s*>>>\s*PS[45]/gi, "")
+    .replace(/\s*\\>\\>\\>/gi, "")
+    .replace(/\s*\\>\\>/gi, "")
+    .replace(/\s*>>/gi, "")
+    .replace(/\s*>>>/gi, "")
+    .replace(/\s*PS4‎?\s*(?:[&ey]|et|og)\s*PS5™?/gi, "")
+    .replace(/\s*PS[45]™?\b/g, "")
+    .replace(/^(.*?)\s*:\s*Premium Edition$/, "$1")
+    .replace(/^(.*?)(\s*–\s*The Definitive Edition\s*>>>.*)?$/, "$1")
+    .replace(/^(.*?)\s*:\s*Edition\s+Premium$/, "$1")
+    .replace(/:\s*Game of the Year(?:\s+Edition)?/gi, "")
+    .replace(/\s*(?:Digital\s+)?(?:Deluxe\s+)?Edition(?:\s+PS[45])?/gi, "")
+    .replace(/\s*Version\s*PS[45]/gi, "")
+    .replace(/\s*for PS4™?/gi, "")
+    .replace(/®:\s*/g, ": ")
+    .replace(/LEGO®/g, "LEGO")
+    .replace(/^\\/g, "")
+    .replace(/\s*vs\.\s*/g, " vs ")
+    .replace(/\\/g, "")
+    .replace(/\>>>/g, "")
+    .replace(/^(.*?)\s+Version:/, "$1")
+    .replace(/^(.*?)\s*\(PlayStation\d+\)$/, "$1")
+    .replace(/\s+/g, " ")
+    .replace(/^-=-=-=-=-=-=-=-=$|^=-=-=-=-=-=-=-=-=$|^—-----------------—$/, "")
+    .replace(/\s*PlayStation4\s*/, " ")
+    .replace(
+      /\s*PlayStation5\s*/,
+      " "
+        // یکسان‌سازی نهایی
+        .replace(/\s+/g, " ")
+        .trim()
+    );
+
+  editions.forEach((editionPattern) => {
+    cleanTitle = cleanTitle.replace(editionPattern, "");
+  });
+
+  cleanTitle = cleanTitle.replace(/\s*\\?-\s*(?=\s|$)/g, "").trim();
+
+  return cleanTitle;
+}
+
+async function findSimilarTitle(cleanTitle) {
+  try {
+    const result = await client.query(
+      `SELECT id, clean_title, 
+              title_similarity(clean_title, $1) as similarity_score
+       FROM games 
+       WHERE clean_title % $1
+         AND title_similarity(clean_title, $1) >= $2
+       ORDER BY title_similarity(clean_title, $1) DESC 
+       LIMIT 1`,
+      [cleanTitle, SIMILARITY_THRESHOLD]
+    );
+
+    if (result.rows.length > 0) {
+      const candidate = result.rows[0];
+      const distance = levenshtein.get(candidate.clean_title, cleanTitle);
+      if (distance <= MAX_EDIT_DISTANCE) {
+        return candidate;
       }
-    } catch (error) {
-      console.log(`خطا در بررسی کانال ${channel.id}:`, error.message);
     }
-  }
-  return notJoinedChannels;
-}
-
-
-// اصلاح دستور استارت
-bot.command("start", async (ctx) => {
-  const user = ctx.from;
-  try {
-    await pool.query(
-      `INSERT INTO users (telegram_id, first_name, last_name, username)
-       VALUES ($1, $2, $3, $4)
-       ON CONFLICT (telegram_id) DO UPDATE
-       SET first_name = EXCLUDED.first_name,
-           last_name = EXCLUDED.last_name,
-           username = EXCLUDED.username;`,
-      [user.id, user.first_name, user.last_name || null, user.username || null]
-    );
-
-    // بررسی عضویت در کانال‌ها
-    const notJoinedChannels = await checkMembership(user.id);
-    if (notJoinedChannels.length > 0) {
-      await showJoinMessage(ctx, notJoinedChannels);
-      return;
-    }
-
-    await ctx.reply(`سلام ${user.first_name}! 👋 خوش اومدی.`);
-    await showMenu(ctx);
+    return null;
   } catch (error) {
-    console.error("❌ خطا در ذخیره اطلاعات کاربر:", error);
-    await ctx.reply("مشکلی پیش آمد. لطفاً دوباره امتحان کن.");
+    console.error("Error finding similar title:", error);
+    return null;
   }
-});
-
-// تابع نمایش پیام عضویت در کانال‌ها
-async function showJoinMessage(ctx, notJoinedChannels) {
-  const keyboard = new InlineKeyboard();
-  
-  // اضافه کردن دکمه برای هر کانال
-  notJoinedChannels.forEach(channel => {
-    keyboard.url(`📢 ${channel.title}`, channel.link).row();
-  });
-  
-  // اضافه کردن دکمه "عضو شدم"
-  keyboard.text("✅ عضو شدم", "check_membership");
-
-  await ctx.reply(
-    "🚩 لطفاً ابتدا در کانال‌های زیر عضو شوید و سپس روی دکمه «عضو شدم» کلیک کنید:",
-    { reply_markup: keyboard }
-  );
 }
 
+async function processGameTitle(originalTitle, postId) {
+  if (shouldSkipLine(originalTitle)) return null;
 
-// تعریف تابع نمایش منو
-async function showMenu(ctx) {
-  const keyboard = new InlineKeyboard()
-    .text("🎲 جستجوی بازی و اکانت موردنظر", "search_games")
-    .row()
-    .text("📋 لیست بازی‌های من", "my_games_list")
-    .row()
-    .text("💡آموزش استفاده از ربات", "tutorial");
-    
-  await ctx.reply("🎮 به ربات خوش آمدید. لطفاً یکی از گزینه‌های زیر را انتخاب کنید:", {
-    reply_markup: keyboard
-  });
-}
+  const cleanTitle = cleanGameTitle(originalTitle);
+  if (!cleanTitle || cleanTitle.length < 3) return null;
 
-// هندلر دکمه "عضو شدم"
-bot.callbackQuery("check_membership", async (ctx) => {
-  const userId = ctx.from.id;
-  
-  // بررسی مجدد عضویت
-  const notJoinedChannels = await checkMembership(userId);
-  
-  if (notJoinedChannels.length === 0) {
-    // اگر در همه کانال‌ها عضو شده باشد
-    await ctx.answerCallbackQuery({ 
-      text: "✅ عضویت شما تایید شد!",
-      show_alert: true
-    });
-    await ctx.reply(`سلام ${ctx.from.first_name}! 👋 خوش اومدی.`);
-    await showMenu(ctx);
-  } else {
-    // اگر هنوز در همه کانال‌ها عضو نشده باشد
-    await ctx.answerCallbackQuery({ 
-      text: "❌ هنوز در همه کانال‌ها عضو نشده‌اید!",
-      show_alert: true 
-    });
-    await showJoinMessage(ctx, notJoinedChannels);
-  }
-});
-
-// دستور منو
-bot.command("menu", async (ctx) => {
-  await showMenu(ctx);
-});
-
-// ✅ دریافت بازی‌های انتخاب‌شده
-bot.command("my_games", async (ctx) => {
-  const userId = ctx.from.id;
-
-  const result = await pool.query(
-    `SELECT games.clean_title, games.id 
-     FROM user_games 
-     JOIN games ON user_games.game_id = games.id 
-     WHERE user_games.user_id = (SELECT id FROM users WHERE telegram_id = $1)`,
-    [userId]
-  );
-
-  if (result.rows.length === 0) {
-    return await ctx.reply("❌ شما هیچ بازی‌ای انتخاب نکرده‌اید.");
-  }
-
-  const keyboard = new InlineKeyboard();
-  result.rows.forEach((row) => {
-    keyboard.text(row.clean_title, `remove_game:${row.id}`).row();
-  });
-
-  await ctx.reply(
-    "🕹️ لیست بازی‌های انتخابی شما:\n(با کلیک بر روی نام هر بازی، آن را از لیست خود حذف کنید)",
-    { reply_markup: keyboard }
-  );
-});
-
-// ارسال دکمه‌های انتخاب کنسول
-bot.command("select_console", async (ctx) => {
-  const keyboard = new InlineKeyboard()
-    .text("PS4", "console:ps4")
-    .text("PS5", "console:ps5")
-    .row();
-
-  await ctx.reply("🎮 لطفاً کنسول مورد نظر خود را انتخاب کنید:", {
-    reply_markup: keyboard,
-  });
-});
-
-bot.callbackQuery(/^console:(ps4|ps5)$/, async (ctx) => {
-  const selectedConsole = ctx.match[1]; // دریافت "ps4" یا "ps5"
-  const priceColumn = selectedConsole === "ps4" ? "price_ps4" : "price_ps5"; // تعیین ستون مناسب
-  const userId = ctx.from.id;
-
+  console.log("before");
   try {
-    // دریافت لیست بازی‌های انتخاب‌شده‌ی کاربر
-    const gamesResult = await pool.query(
-      `SELECT games.id 
-       FROM user_games 
-       JOIN games ON user_games.game_id = games.id 
-       WHERE user_games.user_id = (SELECT id FROM users WHERE telegram_id = $1)`,
-      [userId]
+    // جستجوی عنوان مشابه
+    console.log("cleanTitle ---- ", cleanTitle);
+    const similarGame = await findSimilarTitle(cleanTitle);
+    console.log("similarGame ==== ", similarGame);
+
+    if (similarGame) {
+      console.log(`Matched: ${originalTitle} → ${similarGame.clean_title}`);
+      return similarGame.id;
+    }
+
+    // درج عنوان جدید
+    const result = await client.query(
+      `INSERT INTO games (original_title, clean_title) 
+       VALUES ($1, $2)
+       ON CONFLICT (clean_title) DO UPDATE SET clean_title = $2 
+       RETURNING id`,
+      [originalTitle, cleanTitle]
     );
 
-    if (gamesResult.rows.length === 0) {
-      return await ctx.reply("❌ شما هیچ بازی‌ای انتخاب نکرده‌اید.");
-    }
-
-    const gameIds = gamesResult.rows.map((row) => row.id);
-
-    // چک کنیم که آرایه خالی نباشد و اعداد صحیح باشند
-    if (gameIds.length === 0) {
-      return await ctx.reply("❌ شما هیچ بازی‌ای انتخاب نکرده‌اید.");
-    }
-
-    // جستجوی پست‌های مرتبط با بازی‌ها و کنسول انتخابی
-    const postsResult = await pool.query(
-      `SELECT p.content 
-       FROM games_posts 
-       JOIN posts p ON p.id = games_posts.post_id 
-       WHERE game_id = ANY($1) 
-       AND ${priceColumn} IS NOT NULL 
-       ORDER BY created_at DESC 
-       LIMIT 10`,
-      [gameIds] // ارسال آرایه به عنوان پارامتر
-    );
-
-    if (postsResult.rows.length === 0) {
-      return await ctx.reply("❌ هیچ پستی برای بازی‌های شما یافت نشد.");
-    }
-
-    for (const post of postsResult.rows) {
-      await ctx.reply(post.content);
-    }
-
-    // 🛑 حذف لیست بازی‌های کاربر از دیتابیس
-    await pool.query(
-      `DELETE FROM user_games 
-      WHERE user_id = (SELECT id FROM users WHERE telegram_id = $1)`,
-      [userId]
-    );
-
-    await ctx.reply("✅ لیست بازی‌های انتخابی شما پاک شد. می‌توانید دوباره جستجو کنید.");
+    uniqueGames.add(cleanTitle);
+    return result.rows[0].id;
   } catch (error) {
-    console.error("❌ خطا در دریافت پست‌ها:", error);
-    await ctx.reply("مشکلی پیش آمد. لطفاً دوباره امتحان کنید.");
+    console.error("Error processing game title:", error);
+    return null;
   }
-});
+}
 
-// ✅ هندل حذف بازی
-bot.callbackQuery(/^remove_game:(\d+)$/, async (ctx) => {
-  const gameId = ctx.match[1];
-  const userId = ctx.from.id;
+async function processPost(content, sourceFile) {
+  try {
+    const idMatch = content.match(/id:\s*(\d+)/i);
+    if (!idMatch) return;
+    const postId = parseInt(idMatch[1]);
 
-  await pool.query(
-    "DELETE FROM user_games WHERE user_id = (SELECT id FROM users WHERE telegram_id = $1) AND game_id = $2",
-    [userId, gameId]
-  );
+    // // جدا کردن خط اول (نام بازی) از بقیه متن
+    // const lines = content.split("\n");
+    // console.log(lines);
 
-  await ctx.answerCallbackQuery();
-  await ctx.reply("✅ بازی از لیست شما حذف شد.");
-});
+    // if (lines.length === 0) return null;
 
-// اضافه کردن هندلر برای دکمه جستجوی بازی
-bot.callbackQuery("search_games", async (ctx) => {
-  await ctx.reply("🚩 لطفاً نام بازی مورد نظر خود را وارد کنید:");
-  await ctx.answerCallbackQuery();
-});
+    // // فقط در خط اول (نام بازی) بک‌اسلش قبل از خط تیره را حذف می‌کنیم
+    // const gameNameFixed = lines[0].replace(/\\\-/g, "-");
 
-// اضافه کردن هندلر برای دکمه لیست بازی‌ها
-bot.callbackQuery("my_games_list", async (ctx) => {
-  // اجرای همان کد my_games
-  const userId = ctx.from.id;
+    // // جایگزین کردن خط اول اصلاح شده و ترکیب مجدد با بقیه خطوط
+    // const cleanContent = [gameNameFixed, ...lines.slice(1)].join("\n");
 
-  const result = await pool.query(
-    `SELECT games.clean_title, games.id 
-     FROM user_games 
-     JOIN games ON user_games.game_id = games.id 
-     WHERE user_games.user_id = (SELECT id FROM users WHERE telegram_id = $1)`,
-    [userId]
-  );
+    // // پردازش محتوا
+    const cleanContent = content
+      .replace(/id:\s*\d+\s*\n/i, "")
+      .replace(/[=*]{4,}/g, "")
+      .trim();
 
-  if (result.rows.length === 0) {
-    await ctx.reply("❌ شما هیچ بازی‌ای انتخاب نکرده‌اید.");
-  } else {
-    const keyboard = new InlineKeyboard();
-    result.rows.forEach((row) => {
-      keyboard.text(row.clean_title, `remove_game:${row.id}`).row();
-    });
+    // استخراج اطلاعات پست
+    const regionMatch = content.match(/🌐region\s*(\d+)/i);
+    const pricePS4Match = content.match(/💰price ps4\s*:\s*(\d+)/i);
+    const pricePS5Match = content.match(/💰price ps5\s*:\s*(\d+)/i);
 
-    await ctx.reply(
-      "🕹️ لیست بازی‌های انتخابی شما:\n(با کلیک بر روی نام هر بازی، آن را از لیست خود حذف کنید)",
-      { reply_markup: keyboard }
+    // درج پست در دیتابیس
+    await client.query(
+      `INSERT INTO posts (id, content, region, price_ps4, price_ps5, source_file) 
+       VALUES ($1, $2, $3, $4, $5, $6)
+       ON CONFLICT (id) DO UPDATE SET
+       content = EXCLUDED.content,
+       region = EXCLUDED.region,
+       price_ps4 = EXCLUDED.price_ps4,
+       price_ps5 = EXCLUDED.price_ps5`,
+      [
+        postId,
+        cleanContent,
+        regionMatch?.[1] || null,
+        pricePS4Match?.[1] || null,
+        pricePS5Match?.[1] || null,
+        sourceFile,
+      ]
     );
-  }
-  
-  await ctx.answerCallbackQuery();
-});
 
-// ✅ جستجوی بازی‌ها
-bot.on("message:text", async (ctx) => {
-  const userId = ctx.from.id;
-  const searchQuery = ctx.message.text.trim();
+    // پردازش عناوین بازی‌ها
+    const gameLines = cleanContent
+      .split("\n")
+      .map((line) => line.trim())
+      .filter((line) => line && !line.match(/id:|region|price/i));
 
-  // بررسی عضویت در کانال‌ها
-  const notJoinedChannels = await checkMembership(userId);
-  if (notJoinedChannels.length > 0) {
-    let inviteMessage =
-      "❌ لطفاً ابتدا در کانال‌های زیر عضو شوید:\n\n" +
-      notJoinedChannels
-        .map((channel) => `🔹 [${channel.title}](${channel.link})`)
-        .join("\n");
+    console.log("gameLines ====== ", gameLines);
 
-    await ctx.reply(inviteMessage, { parse_mode: "Markdown" });
-    return;
-  }
-
-  // بررسی تعداد بازی‌های انتخاب شده
-  const gamesCount = await pool.query(
-    `SELECT COUNT(*) FROM user_games 
-     WHERE user_id = (SELECT id FROM users WHERE telegram_id = $1)`,
-    [userId]
-  );
-
-  if (gamesCount.rows[0].count >= 10) {
-    await ctx.reply("❌ شما نمی‌توانید بیش از 10 بازی انتخاب کنید. برای تغییر لیست از دستور /my_games استفاده کنید.");
-    return;
-  }
-
-  // جستجوی بازی در دیتابیس
-  const result = await pool.query(
-    "SELECT id, clean_title FROM games WHERE clean_title ILIKE $1 LIMIT 10",
-    [`%${searchQuery}%`]
-  );
-
-  if (result.rows.length === 0) {
-    return ctx.reply("❌ هیچ بازی‌ای با این نام پیدا نشد.");
-  }
-
-  const keyboard = new InlineKeyboard();
-  result.rows.forEach((row) => {
-    keyboard.text(row.clean_title, `select_game:${row.id}`).row();
-  });
-
-  await ctx.reply("🔎 لطفاً بازی موردنظرتون رو از لیست انتخاب کنید:", {
-    reply_markup: keyboard,
-  });
-});
-
-bot.callbackQuery(/^select_game:(\d+)$/, async (ctx) => {
-  const selectedGameId = ctx.match[1];
-  const userId = ctx.from.id;
-
-  // دریافت user_id از جدول users
-  const user = await pool.query(
-    "SELECT id FROM users WHERE telegram_id = $1",
-    [userId]
-  );
-  if (user.rows.length === 0) {
-    return await ctx.reply(
-      "❌ اطلاعات شما در ربات ثبت نشده! لطفاً با /start شروع کنید."
-    );
-  }
-
-  const internalId = user.rows[0].id;
-
-  // چک کردن تکراری نبودن بازی
-  const existingGame = await pool.query(
-    "SELECT 1 FROM user_games WHERE user_id = $1 AND game_id = $2",
-    [internalId, selectedGameId]
-  );
-
-  if (existingGame.rows.length > 0) {
-    await ctx.answerCallbackQuery();
-    return await ctx.reply("⚠️ این بازی قبلاً در لیست شما ثبت شده است!");
-  }
-
-  // ذخیره انتخاب بازی در دیتابیس
-  await pool.query(
-    "INSERT INTO user_games (user_id, game_id) VALUES ($1, $2)",
-    [internalId, selectedGameId]
-  );
-
-  // دریافت عنوان بازی برای نمایش به کاربر
-  const game = await pool.query(
-    "SELECT clean_title FROM games WHERE id = $1",
-    [selectedGameId]
-  );
-  const gameTitle = game.rows[0].clean_title;
-
-  await ctx.answerCallbackQuery();
-  await ctx.reply(`✅ بازی **${gameTitle}** به لیست شما اضافه شد.`, {
-    parse_mode: "Markdown",
-  });
-
-  // ایجاد کیبورد با سه گزینه
-  const keyboard = new InlineKeyboard()
-    .text("1) اسم بازی دیگه‌ای رو وارد کنید", "option_1")
-    .row()
-    .text("2) لیست بازیهای انتخابیتون رو ببینید", "option_2")
-    .row()
-    .text("3) کنسولی که میخواید براش بازی تهیه کنید رو انتخاب کنید", "option_3");
-
-  await ctx.reply(
-    " بازی به لیستتون اضافه شد🙂‍↕️✔️\n\n" +
-    "الان میتونید :👇🏻",
-    {
-      reply_markup: keyboard
+    for (const gameLine of gameLines) {
+      const gameId = await processGameTitle(gameLine, postId);
+      if (gameId) {
+        await client.query(
+          `INSERT INTO games_posts (game_id, post_id)
+           VALUES ($1, $2)
+           ON CONFLICT DO NOTHING`,
+          [gameId, postId]
+        );
+      }
     }
-  );
-});
 
-// هندلر گزینه 1
-bot.callbackQuery("option_1", async (ctx) => {
-  await ctx.reply("🚩 لطفاً نام بازی مورد نظر خود را وارد کنید:");
-  await ctx.answerCallbackQuery();
-});
-
-// هندلر گزینه 2
-bot.callbackQuery("option_2", async (ctx) => {
-  const userId = ctx.from.id;
-
-  const result = await pool.query(
-    `SELECT games.clean_title, games.id 
-     FROM user_games 
-     JOIN games ON user_games.game_id = games.id 
-     WHERE user_games.user_id = (SELECT id FROM users WHERE telegram_id = $1)`,
-    [userId]
-  );
-
-  if (result.rows.length === 0) {
-    await ctx.reply("❌ شما هیچ بازی‌ای انتخاب نکرده‌اید.");
-  } else {
-    const keyboard = new InlineKeyboard();
-    result.rows.forEach((row) => {
-      keyboard.text(row.clean_title, `remove_game:${row.id}`).row();
-    });
-
-    await ctx.reply(
-      "🕹️ لیست بازی‌های انتخابی شما:\n(با کلیک بر روی نام هر بازی، آن را از لیست خود حذف کنید)",
-      { reply_markup: keyboard }
-    );
+    console.log(`Processed post ${postId} from ${sourceFile}`);
+  } catch (error) {
+    console.error(`Error processing post:`, error);
   }
-  
-  await ctx.answerCallbackQuery();
-});
+}
 
-// هندلر گزینه 3
-bot.callbackQuery("option_3", async (ctx) => {
-  const keyboard = new InlineKeyboard()
-    .text("PS4", "console:ps4")
-    .text("PS5", "console:ps5")
-    .row();
+async function processFile(filePath) {
+  try {
+    // const content = await fs.readFile(filePath, "utf8");
+    const content = await fs.readFile(filePath, "utf8");
+    const cleanContent = content.replace(/\\([^\\])/g, "$1");
+    const posts = cleanContent
+      .split(/(={10,}|-{10,})/g)
+      .map((post) => post.trim())
+      .filter((post) => post && !post.match(/={10,}|-{10,}/));
 
-  await ctx.reply("🎮 لطفاً کنسول مورد نظر خود را انتخاب کنید:", {
-    reply_markup: keyboard,
-  });
-  await ctx.answerCallbackQuery();
-});
+    const fileName = filePath.split(/[\\/]/).pop();
 
-bot.callbackQuery("tutorial", async (ctx) => {
-  // آدرس ویدیو آموزشی را اینجا قرار دهید
-  const videoFileId = "YOUR_VIDEO_FILE_ID"; 
-  await ctx.reply("🎥 ویدیوی آموزش استفاده از ربات:");
-  await ctx.replyWithVideo(videoFileId, {
-    caption: "راهنمای استفاده از ربات:\n\n" +
-            "1️⃣ ابتدا نام بازی مورد نظر خود را وارد کنید\n" +
-            "2️⃣ از لیست پیشنهادی، بازی مورد نظر را انتخاب کنید\n" +
-            "3️⃣ می‌توانید تا 10 بازی به لیست خود اضافه کنید\n" +
-            "4️⃣ با دستور /select_console کنسول مورد نظر را انتخاب کنید\n" +
-            "5️⃣ پست‌های مرتبط با بازی‌های شما نمایش داده خواهد شد"
-  });
-});
+    for (const post of posts) {
+      console.log(post);
 
-// شروع ربات
-createTables().then(() => bot.start());
+      await processPost(post, fileName);
+    }
+
+    console.log(`Finished processing: ${fileName}`);
+  } catch (error) {
+    console.error(`Error processing file ${filePath}:`, error);
+  }
+}
+
+async function main() {
+  try {
+    await client.connect();
+    console.log("Connected to database");
+
+    await createTables();
+    console.log("Database initialized");
+
+    for (const filePath of INPUT_FILES) {
+      console.log(`\nProcessing file: ${filePath}`);
+      await processFile(filePath);
+    }
+
+    console.log("\nProcessing completed");
+    console.log(`Total unique games: ${uniqueGames.size}`);
+  } catch (error) {
+    console.error("Main error:", error);
+  } finally {
+    await client.end();
+    console.log("Database connection closed");
+  }
+}
+
+main();
