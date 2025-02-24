@@ -1,6 +1,7 @@
 require("dotenv").config();
 const fs = require("fs").promises;
 const { Client } = require("pg");
+const levenshtein = require("fast-levenshtein");
 
 // Database configuration
 const client = new Client({ connectionString: process.env.DATABASE_URL });
@@ -15,39 +16,42 @@ const INPUT_FILES = [
   process.env.FILE_PATH_6,
 ].filter(Boolean);
 
-// Set برای نگهداری عناوین یونیک
+// تنظیمات فازی
+const SIMILARITY_THRESHOLD = 0.8;
+const MAX_EDIT_DISTANCE = 3;
 const uniqueGames = new Set();
 
 async function createTables() {
   try {
     await client.query(`
+      CREATE EXTENSION IF NOT EXISTS pg_trgm;
+      
       CREATE TABLE IF NOT EXISTS games (
         id SERIAL PRIMARY KEY,
         original_title TEXT NOT NULL,
         clean_title TEXT NOT NULL,
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
         UNIQUE(clean_title)
-      )
-    `);
+      );
+      
+      CREATE INDEX games_clean_title_trgm_idx ON games 
+      USING GIN (clean_title gin_trgm_ops);
 
-    await client.query(`
       CREATE TABLE IF NOT EXISTS posts (
         id INTEGER PRIMARY KEY,
         content TEXT NOT NULL,
         region TEXT,
         price_ps4 INTEGER,
         price_ps5 INTEGER,
-        source_file TEXT,  -- ستون جدید
+        source_file TEXT,
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-      )
-    `);
+      );
 
-    await client.query(`
       CREATE TABLE IF NOT EXISTS games_posts (
         game_id INTEGER REFERENCES games(id),
         post_id INTEGER REFERENCES posts(id),
         PRIMARY KEY (game_id, post_id)
-      )
+      );
     `);
 
     console.log("Tables created successfully");
@@ -55,6 +59,25 @@ async function createTables() {
     console.error("Error creating tables:", error);
     throw error;
   }
+}
+
+function shouldSkipLine(line) {
+  const normalizedLine = line
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase();
+
+  const skipPatterns = [
+    /^[\d\W]+$/, // خطوط فقط شامل اعداد یا علائم
+    /\b(?:demo|trial|beta|early access|account|dlc|season pass)\b/i,
+    /.{0,5}(http|www|\.com|\.ir|id:|number of post)/i,
+    /^\s*$/,
+    /^(سلام|ممنون|مجموعه|پلاس|همراه|اکانت)/,
+    /[=*]{4,}/,
+    /^[📥💰🔥❗️♻️✅🟢🎲🔻]/,
+  ];
+
+  return skipPatterns.some((pattern) => pattern.test(normalizedLine));
 }
 
 const editions = [
@@ -79,116 +102,81 @@ const editions = [
   "Special",
   "Legacy",
   "Next Level",
-  "Champions",
   "Director's Cut",
   "Collection",
-  "Trilogy"
+  "Trilogy",
 ].map((edition) => new RegExp(`\\s*[-–]?\\s*${edition}`, "g"));
-
-function shouldSkipLine(line) {
-  const skipPatterns = [
-    /^سلام/,
-    /^مجموعه/,
-    /^ممنون/,
-    /^https/,
-    /^پلاس/,
-    /^همراه/,
-    /^📥/,
-    /^سوپر/,
-    /^\=/,
-    /^\s*$/,
-    /^PS4/,
-    /^PS5/,
-    /^PS Plus/i,
-    /^Region/i,
-    /demo$/i,
-    /trial$/i,
-    /^🌐/,
-    /^💰/,
-    /^🔥/,
-    /^❗️/,
-    /^@/,
-    /^====/,
-    /^id/,
-    /^number of post/i,
-    /EA Play game/i,
-    /Some Games On EA Play/i,
-    /All Games On Plus/i,
-    /Plus Premium Game/i,
-    /Some Games On Plus/i,
-    /پلاس 1 ساله تمدید خودکار/i,
-    /همراه با بازی شانسی/i,
-    /—\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-—/,
-    /\+Plus/,
-    /➖➖➖➖➖➖➖➖➖/,
-    /^♻️/,
-    /^💬/,
-    /^✅/,
-    /^Mondana/,
-    /^GNHdhhg/,
-    /^اکانت/,
-    /^————————————/,
-    /^🤞🏻/,
-    /^🟢/,
-    /^دوستانی/,
-    /^R1/,
-    /^🎲/,
-    /^1\)/,
-    /^2\)/,
-    /^3\)/,
-    /^4\)/,
-    /^5\)/,
-    /^↼↼↼↼↼↼↼↼↼↼↼↼↼↼↼↼/,
-    /^↼↼↼↼↼↼↼↼↼↼↼↼↼↼↼/,
-    /^💸/,
-    /^🔻/,
-    /90% Games On Plus/i,
-    /PROTOTYPE/i,
-    /ToPS4Account/i,
-    /PS4 Buy Account/i,
-    /PS5Account/i,
-    /Acc021/i,
-    /Log Seller/i,
-    /GameShare/i,
-    /Days to Die/i,
-    /Acc/i,
-    /Account/i,
-    /—\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-—/,
-    /\*/,
-    /\-\=\-\=\-\=\-\=\-\=\-\=\-\=\-\=/,
-    /\=\-\=\-\=\-\=\-\=\-\=\-\=\-\=\-\=/,
-    /—\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-—/,
-    /—————————/,
-  ];
-
-  return skipPatterns.some((pattern) => pattern.test(line));
-}
 
 function cleanGameTitle(title) {
   if (shouldSkipLine(title)) {
     return null;
   }
 
+  // Initial normalization
   let cleanTitle = title
+    .replace(/\s+/g, " ") // Normalize spaces
+    .trim();
+
+  // Standardize common game titles
+  const titleMappings = {
+    "ACE COMBAT\\s*7\\s*SKIES\\s*UNKNOWN": "ACE COMBAT 7 SKIES UNKNOWN",
+    "ARK\\s*Survival\\s*Evolved(?:\\s*Explorer's)?": "ARK Survival Evolved",
+    "Assassin's\\s*Creed\\s*Chronicles(?:\\s*[-–]\\s*Trilogy)?":
+      "Assassin's Creed Chronicles",
+    "Assassin's\\s*Creed\\s*(?:IV|4)\\s*Black\\s*Flag":
+      "Assassin's Creed IV Black Flag",
+    "Batman(?:\\s*[:\\s])?\\s*Arkham\\s*Knight(?:\\s*\\d*)?":
+      "Batman Arkham Knight",
+    "Batman(?:\\s*[:\\s])?\\s*Arkham\\s*VR": "Batman Arkham VR",
+    "Batman(?:\\s*[:\\s])?\\s*Return\\s*to\\s*Arkham(?:\\s*Arkham\\s*(?:Asylum|City))?":
+      "Batman Return to Arkham",
+    "Battlefield\\s*(?:4|IV)(?:\\s*full\\s*game)?": "Battlefield 4",
+    "Battlefield\\s*V": "Battlefield V",
+    "Beyond(?:\\s*[:\\s])?\\s*Two\\s*Souls": "Beyond Two Souls",
+    "Bloodborne(?:\\s*(?:Game of the Year|The Old Hunters))?": "Bloodborne",
+    "Call\\s*of\\s*Duty(?:\\s*[:\\s])?\\s*Black\\s*Ops\\s*(?:III|3)(?:\\s*Zombies\\s*Chronicles)?":
+      "Call of Duty Black Ops III",
+    "Call\\s*of\\s*Duty(?:\\s*[:\\s])?\\s*Modern\\s*Warfare(?:\\s*(?:II|2|III|3))?":
+      "Call of Duty Modern Warfare",
+    "Crash\\s*Bandicoot\\s*4(?:\\s*[:\\s])?\\s*It's\\s*About\\s*Time":
+      "Crash Bandicoot 4",
+    "Crash\\s*Team\\s*Racing\\s*Nitro-Fueled(?:\\s*Nitros\\s*Oxide)?":
+      "Crash Team Racing Nitro-Fueled",
+    "Crysis\\s*(?:2|3|II|III)?(?:\\s*Remastered)?": "Crysis",
+  };
+
+  // Apply title mappings
+  for (const [pattern, replacement] of Object.entries(titleMappings)) {
+    const regex = new RegExp(pattern, "i");
+    if (regex.test(cleanTitle)) {
+      cleanTitle = replacement;
+      break;
+    }
+  }
+
+  cleanTitle = title
     // حذف کاراکترهای اضافی و یکسان‌سازی فاصله‌ها
-    .replace(/\s+/g, ' ')
+    .replace(/\s+/g, " ")
     .trim()
     .replace(
       /^-=\-=\-=\-=\-=\-=\-=\-=\-$|^=\-=\-=\-=\-=\-=\-=\-=$|^—\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-—$|^—————————$/,
       "$1"
     )
     // یکسان‌سازی نام‌های خاص
-    .replace(/FIFA\s*(\d{2})/i, 'FIFA $1')
-    .replace(/Battlefield\s*/i, 'Battlefield ')
-    .replace(/BATMAN/i, 'Batman')
-    .replace(/ACE\s*COMBAT\s*7/i, 'ACE COMBAT 7')
+    .replace(/FIFA\s*(\d{2})/i, "FIFA $1")
+    .replace(/Battlefield\s*/i, "Battlefield ")
+    .replace(/BATMAN/i, "Batman")
+    .replace(/ACE\s*COMBAT\s*7/i, "ACE COMBAT 7")
     .replace(/Assassin['']s\s*Creed/i, "Assassin's Creed")
-    .replace(/DRAGON\s*BALL/i, 'Dragon Ball')
+    .replace(/DRAGON\s*BALL/i, "Dragon Ball")
     // حذف پسوندهای اضافی
-    .replace(/\s*(Bundle|Pack|Vault|Cross-?gen|Launch|Full game|Enhanced|Special)(?:\s|$)/gi, '')
-    .replace(/\s*(?:Game of the Year|Champions|Director's Cut)(?:\s+Edition)?/gi, '')
-    .replace(/\s*\[.*?\]/g, '')
-    .replace(/\s*\(.*?\)/g, '')
+    .replace(
+      /\s*(Bundle|Pack|Vault|Cross-?gen|Launch|Full game|Enhanced|Special|Final Battle|Competition|Competizione|Competizioneerous|Revolution|Multi-Gen|Multi-Generation)(?:\s|$)/gi,
+      ""
+    )
+    .replace(/\s*(?:Game of the Year|Director's Cut)(?:\s+Edition)?/gi, "")
+    .replace(/\s*\[.*?\]/g, "")
+    .replace(/\s*\(.*?\)/g, "")
     .replace(/\s*\[\d+\]$/, "")
     .replace(/^(.*?)\s+per\s+PS\d+\s+e\s+PS\d+$/, "$1")
     .replace(/^(.*?)\s+for\s+PS\d+\s+and\s+PS\d+$/, "$1")
@@ -203,10 +191,17 @@ function cleanGameTitle(title) {
     .replace(/\bOf\b/, "of")
     .replace(/^(.*?):\s*(.*)$/, "$1 $2")
     .replace(/^(.*?)\s*: Remastered$/, "$1")
+    .replace(/^(.*?)\s*: Competition$/, "$1")
+    .replace(/^(.*?)\s*: Competizione$/, "$1")
+    .replace(/^(.*?)\s*: Competizioneerous$/, "$1")
+    .replace(/^(.*?)\s*: Traveler Edition$/, "$1")
+    .replace(/^(.*?)\s*: e Titanfall 2$/, "$1")
+    .replace(/^(.*?)\s*: ==Revolution$/, "$1")
     .replace(/^(.*?)\s*–\s*The\s+Definitive$/, "$1")
     .replace(/^(.*?)\s*–\s*Legend\s+Edition$/, "$1")
     .replace(/^(.*?)\s*–\s*Standard\s+Eition$/, "$1")
     .replace(/^(.*?)\s*–\s*Standard\s+Edition$/, "$1")
+    .replace(/^(.*?)\s*–\s*Traveler\s+Edition$/, "$1")
     .replace(/^(.*?)\s*–\s*Enhanced\s+Edition$/, "$1")
     .replace(/^(.*?)\s*–\s*Console\s+Edition$/, "$1")
     .replace(/^(.*?)\s*–\s*Ultimate\s+Bundle$/, "$1")
@@ -232,7 +227,21 @@ function cleanGameTitle(title) {
     .replace(/\s*Legend Edition\s*/, " ")
     .replace(/\s*SEASON UPDATE\s*/, " ")
     .replace(/\s*Standardowa\s*/, " ")
-    .replace(/\s*per\s*/, " ")
+    .replace(/\bChampions Edition\b/, " ")
+    .replace(/@fullhacker2017\b/, " ")
+    .replace(/\bTOP GUN: Maverick\b/, " ")
+    .replace(/\s*1\) ToPS4Account\s*/, " ")
+    .replace(/\s*350 T\s*/, " ")
+    .replace(/\s*4\) Acc021\s*/, " ")
+    .replace(/\s*5\) Log Seller's\s*/, " ")
+    .replace(/\s*5\) PS GameShare\s*/, " ")
+    .replace(/\bVR MODE\b/, " ")
+    .replace(/\bPS4 & PS5\b/, " ")
+    .replace(/\bper\b/, " ")
+    .replace(/\bElite\b/, " ")
+    .replace(/\bThe\b/, " ")
+    .replace(/\bTHE\b/, " ")
+    .replace(/\bCOLLECTION\b/, " ")
     .replace(/\s*Definitive\s*/, " ")
     .replace(/\s*Premium\s*/, " ")
     .replace(/\s*Premium\s*/, " ")
@@ -254,8 +263,8 @@ function cleanGameTitle(title) {
     .replace(/^(.*?)\s*–\s*The Definitive Edition$/, "$1")
     .replace(/^(.*?)\s*–\s*The Definitive$/, "$1")
     // حذف نسخه‌های خاص
-    .replace(/\s+-\s+(?:Trilogy|Collection)$/i, '')
-    .replace(/\s+(?:Legacy|Next Level)$/i, '')
+    .replace(/\s+-\s+(?:Trilogy|Collection)$/i, "")
+    .replace(/\s+(?:Legacy|Next Level)$/i, "")
     .replace(/[™®]/g, "")
     .replace(/\s*\[R[1-3]\]/g, "")
     .replace(/\s*\\\[R[1-3]\\\]/g, "")
@@ -286,10 +295,12 @@ function cleanGameTitle(title) {
     .replace(/\s+/g, " ")
     .replace(/^-=-=-=-=-=-=-=-=$|^=-=-=-=-=-=-=-=-=$|^—-----------------—$/, "")
     .replace(/\s*PlayStation4\s*/, " ")
-    .replace(/\s*PlayStation5\s*/, " "
-      // یکسان‌سازی نهایی
-      .replace(/\s+/g, ' ')
-      .trim()
+    .replace(
+      /\s*PlayStation5\s*/,
+      " "
+        // یکسان‌سازی نهایی
+        .replace(/\s+/g, " ")
+        .trim()
     );
 
   editions.forEach((editionPattern) => {
@@ -301,135 +312,163 @@ function cleanGameTitle(title) {
   return cleanTitle;
 }
 
-async function processPost(content) {
+async function findSimilarTitle(cleanTitle) {
   try {
-    const idMatch = content.match(/id:\s*(\d+)/);
-    if (!idMatch) return;
-    const postId = parseInt(idMatch[1]);
-
-    // حذف خط حاوی ID از محتوا
-    const cleanContent = content.replace(/id:\s*\d+\s*\n/, '').trim();
-
-    const gamesSection = cleanContent.split("=-=-=-=-=-=-=-=-=")[0];
-    const gameLines = gamesSection
-      .split("\n")
-      .filter((line) => line.trim() && !line.includes("id:"));
-
-    const regionMatch = content.match(/🌐Region\s*(\d+)/);
-    const pricePS4Match = content.match(/💰Price PS4\s*:\s*(\d+)/);
-    const pricePS5Match = content.match(/💰Price PS5\s*:\s*(\d+)/);
-
-    await client.query(
-      `INSERT INTO posts (id, content, region, price_ps4, price_ps5) 
-       VALUES ($1, $2, $3, $4, $5) 
-       ON CONFLICT (id) DO UPDATE SET 
-       content = $2, region = $3, price_ps4 = $4, price_ps5 = $5`,
-      [
-        postId,
-        cleanContent, // استفاده از محتوای تمیز شده
-        regionMatch ? regionMatch[1] : null,
-        pricePS4Match ? parseInt(pricePS4Match[1]) : null,
-        pricePS5Match ? parseInt(pricePS5Match[1]) : null,
-      ]
+    const result = await client.query(
+      `SELECT id, clean_title, 
+              title_similarity(clean_title, $1) as similarity_score
+       FROM games 
+       WHERE clean_title % $1
+         AND title_similarity(clean_title, $1) >= $2
+       ORDER BY title_similarity(clean_title, $1) DESC 
+       LIMIT 1`,
+      [cleanTitle, SIMILARITY_THRESHOLD]
     );
 
-    // بقیه کد بدون تغییر...
+    if (result.rows.length > 0) {
+      const candidate = result.rows[0];
+      const distance = levenshtein.get(candidate.clean_title, cleanTitle);
+      if (distance <= MAX_EDIT_DISTANCE) {
+        return candidate;
+      }
+    }
+    return null;
   } catch (error) {
-    console.error(`Error processing post:`, error);
-    throw error;
+    console.error("Error finding similar title:", error);
+    return null;
   }
 }
 
-async function loadExistingGames() {
+async function processGameTitle(originalTitle, postId) {
+  if (shouldSkipLine(originalTitle)) return null;
+
+  const cleanTitle = cleanGameTitle(originalTitle);
+  if (!cleanTitle || cleanTitle.length < 3) return null;
+
+  console.log("before");
   try {
-    const result = await client.query("SELECT clean_title FROM games");
-    result.rows.forEach((row) => uniqueGames.add(row.clean_title));
-    console.log(`Loaded ${uniqueGames.size} existing games from database`);
+    // جستجوی عنوان مشابه
+    console.log("cleanTitle ---- ", cleanTitle);
+    const similarGame = await findSimilarTitle(cleanTitle);
+    console.log("similarGame ==== ", similarGame);
+
+    if (similarGame) {
+      console.log(`Matched: ${originalTitle} → ${similarGame.clean_title}`);
+      return similarGame.id;
+    }
+
+    // درج عنوان جدید
+    const result = await client.query(
+      `INSERT INTO games (original_title, clean_title) 
+       VALUES ($1, $2)
+       ON CONFLICT (clean_title) DO UPDATE SET clean_title = $2 
+       RETURNING id`,
+      [originalTitle, cleanTitle]
+    );
+
+    uniqueGames.add(cleanTitle);
+    return result.rows[0].id;
   } catch (error) {
-    console.error("Error loading existing games:", error);
-    throw error;
+    console.error("Error processing game title:", error);
+    return null;
   }
 }
 
 async function processPost(content, sourceFile) {
   try {
-    const idMatch = content.match(/id:\s*(\d+)/);
+    const idMatch = content.match(/id:\s*(\d+)/i);
     if (!idMatch) return;
     const postId = parseInt(idMatch[1]);
 
-    // حذف خط حاوی ID از محتوا
-    const cleanContent = content.replace(/id:\s*\d+\s*\n/, '').trim();
+    // // جدا کردن خط اول (نام بازی) از بقیه متن
+    // const lines = content.split("\n");
+    // console.log(lines);
 
-    const gamesSection = cleanContent.split("=-=-=-=-=-=-=-=-=")[0];
-    const gameLines = gamesSection
-      .split("\n")
-      .filter((line) => line.trim() && !line.includes("id:"));
+    // if (lines.length === 0) return null;
 
-    const regionMatch = content.match(/🌐Region\s*(\d+)/);
-    const pricePS4Match = content.match(/💰Price PS4\s*:\s*(\d+)/);
-    const pricePS5Match = content.match(/💰Price PS5\s*:\s*(\d+)/);
+    // // فقط در خط اول (نام بازی) بک‌اسلش قبل از خط تیره را حذف می‌کنیم
+    // const gameNameFixed = lines[0].replace(/\\\-/g, "-");
 
+    // // جایگزین کردن خط اول اصلاح شده و ترکیب مجدد با بقیه خطوط
+    // const cleanContent = [gameNameFixed, ...lines.slice(1)].join("\n");
+
+    // // پردازش محتوا
+    const cleanContent = content
+      .replace(/id:\s*\d+\s*\n/i, "")
+      .replace(/[=*]{4,}/g, "")
+      .trim();
+
+    // استخراج اطلاعات پست
+    const regionMatch = content.match(/🌐region\s*(\d+)/i);
+    const pricePS4Match = content.match(/💰price ps4\s*:\s*(\d+)/i);
+    const pricePS5Match = content.match(/💰price ps5\s*:\s*(\d+)/i);
+
+    // درج پست در دیتابیس
     await client.query(
       `INSERT INTO posts (id, content, region, price_ps4, price_ps5, source_file) 
-       VALUES ($1, $2, $3, $4, $5, $6) 
-       ON CONFLICT (id) DO UPDATE SET 
-       content = $2, region = $3, price_ps4 = $4, price_ps5 = $5, source_file = $6`,
+       VALUES ($1, $2, $3, $4, $5, $6)
+       ON CONFLICT (id) DO UPDATE SET
+       content = EXCLUDED.content,
+       region = EXCLUDED.region,
+       price_ps4 = EXCLUDED.price_ps4,
+       price_ps5 = EXCLUDED.price_ps5`,
       [
         postId,
         cleanContent,
-        regionMatch ? regionMatch[1] : null,
-        pricePS4Match ? parseInt(pricePS4Match[1]) : null,
-        pricePS5Match ? parseInt(pricePS5Match[1]) : null,
-        sourceFile  // اضافه کردن نام فایل
+        regionMatch?.[1] || null,
+        pricePS4Match?.[1] || null,
+        pricePS5Match?.[1] || null,
+        sourceFile,
       ]
     );
 
-    for (const gameTitle of gameLines) {
-      const cleanTitle = cleanGameTitle(gameTitle.trim());
-      if (!cleanTitle) continue;
+    // پردازش عناوین بازی‌ها
+    const gameLines = cleanContent
+      .split("\n")
+      .map((line) => line.trim())
+      .filter((line) => line && !line.match(/id:|region|price/i));
 
-      const gameResult = await client.query(
-        `INSERT INTO games (original_title, clean_title) 
-         VALUES ($1, $2) 
-         ON CONFLICT (clean_title) DO UPDATE SET clean_title = $2 
-         RETURNING id`,
-        [gameTitle.trim(), cleanTitle]
-      );
-      const gameId = gameResult.rows[0].id;
+    console.log("gameLines ====== ", gameLines);
 
-      await client.query(
-        `INSERT INTO games_posts (game_id, post_id) 
-         VALUES ($1, $2) 
-         ON CONFLICT DO NOTHING`,
-        [gameId, postId]
-      );
+    for (const gameLine of gameLines) {
+      const gameId = await processGameTitle(gameLine, postId);
+      if (gameId) {
+        await client.query(
+          `INSERT INTO games_posts (game_id, post_id)
+           VALUES ($1, $2)
+           ON CONFLICT DO NOTHING`,
+          [gameId, postId]
+        );
+      }
     }
 
-    console.log(`Processed post ID: ${postId} from file: ${sourceFile}`);
+    console.log(`Processed post ${postId} from ${sourceFile}`);
   } catch (error) {
     console.error(`Error processing post:`, error);
-    throw error;
   }
 }
 
 async function processFile(filePath) {
   try {
+    // const content = await fs.readFile(filePath, "utf8");
     const content = await fs.readFile(filePath, "utf8");
-    const posts = content
-      .split("======================================\n")
-      .filter((post) => post.trim());
+    const cleanContent = content.replace(/\\([^\\])/g, "$1");
+    const posts = cleanContent
+      .split(/(={10,}|-{10,})/g)
+      .map((post) => post.trim())
+      .filter((post) => post && !post.match(/={10,}|-{10,}/));
 
-    // استخراج نام فایل از مسیر کامل
-    const fileName = filePath.split("/").pop();
+    const fileName = filePath.split(/[\\/]/).pop();
 
     for (const post of posts) {
-      await processPost(post.trim(), fileName);
+      console.log(post);
+
+      await processPost(post, fileName);
     }
 
-    console.log(`File ${filePath} processed successfully`);
+    console.log(`Finished processing: ${fileName}`);
   } catch (error) {
     console.error(`Error processing file ${filePath}:`, error);
-    throw error;
   }
 }
 
@@ -439,24 +478,20 @@ async function main() {
     console.log("Connected to database");
 
     await createTables();
-    await loadExistingGames();
+    console.log("Database initialized");
 
     for (const filePath of INPUT_FILES) {
       console.log(`\nProcessing file: ${filePath}`);
       await processFile(filePath);
     }
 
-    console.log("\nFinal statistics:");
-    console.log(`Total unique games in database: ${uniqueGames.size}`);
+    console.log("\nProcessing completed");
+    console.log(`Total unique games: ${uniqueGames.size}`);
   } catch (error) {
-    console.error("Error:", error);
+    console.error("Main error:", error);
   } finally {
-    try {
-      await client.end();
-      console.log("Database connection closed");
-    } catch (error) {
-      console.error("Error closing database connection:", error);
-    }
+    await client.end();
+    console.log("Database connection closed");
   }
 }
 
