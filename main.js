@@ -13,19 +13,17 @@ const INPUT_FILES = [
   process.env.FILE_PATH_3,
   process.env.FILE_PATH_4,
   process.env.FILE_PATH_5,
-  process.env.FILE_PATH_6,
+  process.env.FILE_PATH_6
 ].filter(Boolean);
 
 // تنظیمات فازی
-const SIMILARITY_THRESHOLD = 0.8;
-const MAX_EDIT_DISTANCE = 3;
+const SIMILARITY_THRESHOLD = 0.75;
+const MAX_EDIT_DISTANCE = 5;
 const uniqueGames = new Set();
 
 async function createTables() {
   try {
     await client.query(`
-      CREATE EXTENSION IF NOT EXISTS pg_trgm;
-      
       CREATE TABLE IF NOT EXISTS games (
         id SERIAL PRIMARY KEY,
         original_title TEXT NOT NULL,
@@ -33,10 +31,10 @@ async function createTables() {
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
         UNIQUE(clean_title)
       );
-      
-      CREATE INDEX games_clean_title_trgm_idx ON games 
-      USING GIN (clean_title gin_trgm_ops);
 
+      CREATE EXTENSION IF NOT EXISTS pg_trgm;
+      CREATE INDEX IF NOT EXISTS games_clean_title_trgm_idx ON games USING GIN (clean_title gin_trgm_ops);
+      
       CREATE TABLE IF NOT EXISTS posts (
         id INTEGER PRIMARY KEY,
         content TEXT NOT NULL,
@@ -143,6 +141,16 @@ function cleanGameTitle(title) {
     "Crash\\s*Team\\s*Racing\\s*Nitro-Fueled(?:\\s*Nitros\\s*Oxide)?":
       "Crash Team Racing Nitro-Fueled",
     "Crysis\\s*(?:2|3|II|III)?(?:\\s*Remastered)?": "Crysis",
+    "Batman\\s*ARKHAM": "Batman Arkham",
+    "DAYS\\s*GONE": "Days Gone",
+    "DIRT\\s*5": "DIRT5",
+    "Dragon\\s*Ball\\s*XENOVERSE": "Dragon Ball Xenoverse",
+    "ELDEN\\s*RING": "Elden Ring",
+    "LEGO\\s*CITY\\s*UNDERCOVER": "LEGO CITY Undercover",
+    "FIFA\\s*21\\s*Champions": "FIFA 21",
+    "FOR\\s*HONOR": "For Honor",
+    "Ghost\\s*of\\s*Tsushima\\s*Legends": "Ghost of Tsushima",
+    "Goat\\s*Simulator\\s*GOATY": "Goat Simulator",
   };
 
   // Apply title mappings
@@ -162,6 +170,149 @@ function cleanGameTitle(title) {
       /^-=\-=\-=\-=\-=\-=\-=\-=\-$|^=\-=\-=\-=\-=\-=\-=\-=$|^—\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-—$|^—————————$/,
       "$1"
     )
+    .replace(/\s*Championship Edition/, "")
+    .replace(/\s*Survival Evolved/, "")
+    .replace(/\s*Ultimate Survivor Edition/, "")
+    .replace(/\s*Survival Ascended/, "")
+    .replace(/\s*Rescue Mission/, "")
+    .replace(/\s*Traveler Edition/, "")
+    .replace(/\s*The Old Hunters Edition/, "")
+    .replace(/\s*Zombies Chronicles Edition/, "")
+    .replace(/\s*Triple Pack PS4 & PS5/, "")
+    .replace(/\s*Curator's Cut/, "")
+    .replace(/\s*Switchback VR/, "")
+    .replace(/\s*Blades & Whip Edition/, "")
+    .replace(/\s*Warmastered Edition/, "")
+    .replace(/\s*The Fire Fades Edition/, "")
+    .replace(/\s*REMASTERED/, "")
+    .replace(/\s*HD Collection/, "")
+    .replace(/\s*HD Collection & 4SE Bundle PS4™ & PS5™/, "")
+    // .replace(/\s*+ Vergil/, "")
+    .replace(/\s*Eternal Collection/, "")
+    .replace(/\s*Reaper of Souls - Ultimate Evil Edition/, "")
+    .replace(/\s*Resurrected/, "")
+    .replace(/\s*- Germany (Rally Location)/, "")
+    .replace(/\s*The Final Cut/, "")
+    .replace(/\s*Death of the Outsider/, "")
+    .replace(/\s*Definitive Edtion/, "")
+    .replace(/\s*Hamlet Console Edition/, "")
+    .replace(/\s*VR Edition/, "")
+    .replace(/\s*Super Deluxe Edition/, "")
+    .replace(/\s*Shadow of the Erdtree/, "")
+    .replace(/\s*Tamriel Unlimited/, "")
+    .replace(/\s*Skyrim Special Edition/, "")
+    .replace(/\s*Skyrim Anniversary Edition/, "")
+    .replace(/\s*Skyrim VR/, "")
+    .replace(/\s*Anniversary Edition/, "")
+    .replace(/\s*Deluxe Schumacher Edition/, "")
+    .replace(/\s*Seventy Edition/, "")
+    .replace(/\s*Champions PS4 et PS5 Edition/, "")
+    .replace(/\s*Blood Dragon/, "")
+    .replace(/\s*Blood Dragon Classic Edition/, "")
+    .replace(/\s*Classic Edition/, "")
+    .replace(/\+\s*FAR CRY PRIMAL/, "")
+    .replace(/\s*Standard Edition PS4 & PS5/, "")
+    .replace(/\s*standard PS4 & PS5/, "")
+    .replace(/\s*New Dawn Deluxe Edition/, "")
+    .replace(/\s*Primal/, "")
+    .replace(/\s*PRIMAL - APEX EDITION/, "")
+    .replace(/\s*Platinum Edition PS4 & PS5/, "")
+    .replace(/\s*ICON Edition/, "")
+    .replace(/\s*NHL™ 19 Bundle/, "")
+    .replace(/\s*NHL 19 Bundle/, "")
+    .replace(/\s*The One Edition Bundle/, "")
+    .replace(/\s*Ultimate Edition for/, "")
+    .replace(/\s*REMAKE & REBIRTH Digital Deluxe Twin Pack/, "")
+    .replace(/\s*REBIRTH/, "")
+    .replace(/\s*Digital Edition deluxe/, "")
+    .replace(/\s*25th Anniversary Digital Deluxe Edition/, "")
+    .replace(/\s*Version: PS4/, "")
+    .replace(/\s*Quidditch Champions PS4 & PS5/, "")
+    .replace(/\s*Quidditch Champions/, "")
+    .replace(/\s*Super Citizen Edition/, "")
+    .replace(/\s*Dive Harder [R3]/, "")
+    .replace(/\s*Super-Earth Ultimate Edition/, "")
+    .replace(/\s*Absolution HD/, "")
+    .replace(/\s*Blood Money HD/, "")
+    .replace(/\s*The Heir of Hogwarts/, "")
+    .replace(/\s*Version: PS4/, "")
+    .replace(/\s*Voidheart Edition/, "")
+    .replace(/\s*Wrong Number PS4 & PS5/, "")
+    .replace(/\s*Showdown/, "")
+    .replace(/\s*Showdown - Last Gust/, "")
+    .replace(/\s*Scrat's Crazy Adventure/, "")
+    .replace(/\s*Scrat's Nutty Adventure/, "")
+    .replace(/\s*& SGW3 Unlimited Edition/, "")
+    .replace(/\s*ULTIMATE EDITION/, "")
+    .replace(/\s*Deluxe Party Edition/, "")
+    .replace(/\s*Platinum Edition/, "")
+    .replace(/\s*Croft Edition/, "")
+    .replace(/\s*& Gat out of Hell/, "")
+    .replace(/\s*20e anniversaire/, "")
+    .replace(/\s*20 Year Celebration/, "")
+    .replace(/\s*Gold Edition & Village Gold Edition/, "")
+    .replace(/\s*Champions PS4/, "")
+    .replace(/\s*A Realm Reborn/, "")
+    .replace(/\s*Online - Complete Collector’s Edition/, "")
+    .replace(/\s*MULTIPLAYER: COMRADES/, "")
+    .replace(/\s*biohazard/, "")
+    .replace(/\s*Edition Ultime/, "")
+    .replace(/\s*Rift Apart PS5/, "")
+    .replace(/\s*STANDARD EDITION/, "")
+    .replace(/\s*ROYAL EDITION/, "")
+    .replace(/\s*Persona Bundle/, "")
+    .replace(/\s*Gourmet Edition/, "")
+    .replace(/\s*Month 1 Edition/, "")
+    .replace(/\s*X-Factor Edition till/, "")
+    .replace(/\s*for PS5/, "")
+    .replace(/\s*Palace Edition/, "")
+    .replace(/\s*Pursuit Remastered/, "")
+    .replace(/\s*Mamba Forever Edition Bundle/, "")
+    .replace(/\s*for PS4/, "")
+    .replace(/\s*NBA 75th Anniversary Edition/, "")
+    .replace(/\s*Michael Jordan Edition/, "")
+    .replace(/\s*Baller Edition/, "")
+    .replace(/\s*Black Mamba Edition/, "")
+    .replace(/\s*Kobe Bryant Edition/, "")
+    .replace(/\s*Road to Boruto/, "")
+    .replace(/\s*Iceborne/, "")
+    .replace(/\s*Iceborne Master Edition/, "")
+    .replace(/\+\s*Sunbreak/, "")
+    .replace(/\s*The Official Videogame/, "")
+    .replace(/\s*Legion Edition/, "")
+    .replace(/\s*Deluxe Recruit Edition/, "")
+    .replace(/\s*Exclusive Digital Edition/, "")
+    .replace(/\s*Superstar Edition/, "")
+    .replace(/\s*75th Anniversary Edition/, "")
+    .replace(/\s*Kobe Bryant/, "")
+    .replace(/\s*All-Star Edition/, "")
+    .replace(/\s*Edizione Standard/, "")
+    .replace(/\s*Originals Edition/, "")
+    .replace(/\s*Legends Edition/, "")
+    .replace(/\s*Master Hunter Bundle/, "")
+    .replace(/\s*Standard Edition/, "")
+    .replace(/\s*Operator Edition/, "")
+    .replace(/\s*Aftermath >>> PS5/, "")
+    .replace(/\s*Icon Edition/, "")
+    .replace(/\s*The Successor of the Legend/, "")
+    .replace(/\s*Dream Maker/, "")
+    .replace(/\s*Icon Edition/, "")
+    .replace(/\s*Year 2 Gold Edition/, "")
+    .replace(/\s*COMPLETE EDITION/, "")
+    .replace(/\s*Ancient Air Snail Bundle/, "")
+    .replace(/\s*Chapter 2: Retribution - Payback Edition/, "")
+    .replace(/\s*Pro Tour Deluxe Edition/, "")
+    .replace(/\s*Help Wanted - Bundle/, "")
+    .replace(/\s*Sister Location/, "")
+    .replace(/\s*Marching Fire Edition/, "")
+    .replace(/\s*DIRECTOR'S CUT/, "")
+    .replace(/\s*Deluxe Download Edition/, "")
+    .replace(/\s*Legends PS4 Edition/, "")
+    .replace(/\s*Security Breach PS4 & PS5/, "")
+    .replace(/\s*Online Complete Edition/, "")
+    .replace(/\s*Riptide Definitive Edition/, "")
+    .replace(/^(.*?)\s*: Nitros Oxide Edition$/, "$1")
+    .replace(/^(.*?)\s*: Nitros Oxide$/, "$1")
     // یکسان‌سازی نام‌های خاص
     .replace(/FIFA\s*(\d{2})/i, "FIFA $1")
     .replace(/Battlefield\s*/i, "Battlefield ")
@@ -189,21 +340,27 @@ function cleanGameTitle(title) {
     .replace(/Parte/gi, "part")
     .replace(/parte/gi, "part")
     .replace(/\bOf\b/, "of")
+    .replace(/\s*Cross-Gen-Bundle\s*/, " ")
+    .replace(/\s*Multi-Generation Lite\s*/, " ")
     .replace(/^(.*?):\s*(.*)$/, "$1 $2")
     .replace(/^(.*?)\s*: Remastered$/, "$1")
     .replace(/^(.*?)\s*: Competition$/, "$1")
     .replace(/^(.*?)\s*: Competizione$/, "$1")
-    .replace(/^(.*?)\s*: Competizioneerous$/, "$1")
+    .replace(/^(.*?)\s*: Competizione$/, "$1")
+    .replace(/^(.*?)\s*: + CTR Nitro-Fueled$/, "$1")
+    .replace(/\s*Nitros Oxide/, "")
     .replace(/^(.*?)\s*: Traveler Edition$/, "$1")
     .replace(/^(.*?)\s*: e Titanfall 2$/, "$1")
     .replace(/^(.*?)\s*: ==Revolution$/, "$1")
     .replace(/^(.*?)\s*–\s*The\s+Definitive$/, "$1")
     .replace(/^(.*?)\s*–\s*Legend\s+Edition$/, "$1")
+    .replace(/^(.*?)\s*–\s*Deluxe\s+Party\s+Edition$/, "$1")
     .replace(/^(.*?)\s*–\s*Standard\s+Eition$/, "$1")
     .replace(/^(.*?)\s*–\s*Standard\s+Edition$/, "$1")
     .replace(/^(.*?)\s*–\s*Traveler\s+Edition$/, "$1")
     .replace(/^(.*?)\s*–\s*Enhanced\s+Edition$/, "$1")
     .replace(/^(.*?)\s*–\s*Console\s+Edition$/, "$1")
+    .replace(/^(.*?)\s*–\s*DIRECTOR’S\s+CUT$/, "$1")
     .replace(/^(.*?)\s*–\s*Ultimate\s+Bundle$/, "$1")
     .replace(/^(.*?)\s*–\s*Edition\s+Bundle$/, "$1")
     .replace(/^(.*?)\s*–\s*Seventy\s+Edition$/, "$1")
@@ -213,11 +370,15 @@ function cleanGameTitle(title) {
     .replace(/^(.*?)\s*–\s*MVP\s+Edition$/, "$1")
     .replace(/\|/, "")
     .replace(/\s+Stand Alone$/, "")
+    .replace(/\s+Stand Alone$/, "")
+    .replace(/\s+--->$/, "")
     .replace(/\s*\(Standalone\)$/, "")
     .replace(/\s*Remake\s*/, " ")
     .replace(/\s*\[15559\]\s*/, " ")
     .replace(/\s*Console\s*/, " ")
     .replace(/\s*PlayStation4\s*/, " ")
+    .replace(/\s*Remasterizado\s*/, " ")
+    .replace(/\s*Reloaded\s*/, " ")
     .replace(/\s*PlayStation4\s*/, " ")
     .replace(/\s*Remastered\s*/, " ")
     .replace(/\s*Digital\s*/, " ")
@@ -226,6 +387,11 @@ function cleanGameTitle(title) {
     .replace(/\s*Ultimate pour\s*/, " ")
     .replace(/\s*Legend Edition\s*/, " ")
     .replace(/\s*SEASON UPDATE\s*/, " ")
+    .replace(/\s*premium Edition\s*/, " ")
+    .replace(/\s*Edition premium\s*/, " ")
+    .replace(/\s*Campagne Remaster\s*/, " ")
+    .replace(/\s*Campaign Remastered\s*/, " ")
+    .replace(/\s*Estndar Edicin\s*/, " ")
     .replace(/\s*Standardowa\s*/, " ")
     .replace(/\bChampions Edition\b/, " ")
     .replace(/@fullhacker2017\b/, " ")
@@ -241,6 +407,7 @@ function cleanGameTitle(title) {
     .replace(/\bElite\b/, " ")
     .replace(/\bThe\b/, " ")
     .replace(/\bTHE\b/, " ")
+    .replace(/\>>> PS5\b/, " ")
     .replace(/\bCOLLECTION\b/, " ")
     .replace(/\s*Definitive\s*/, " ")
     .replace(/\s*Premium\s*/, " ")
@@ -248,13 +415,15 @@ function cleanGameTitle(title) {
     .replace(/\s*Deluxe\s*/, " ")
     .replace(/\s*Standart\s*/, " ")
     .replace(/\s*Standard pour\s*/, " ")
+    .replace(/\s*Explorer's Edition\s*/, " ")
     .replace(/\s*Standart\s*/, " ")
+    .replace(/\s*Eition\s*/, " ")
     .replace(/\s*Edycja\s*/, " ")
     .replace(/\s*Sürüm\s*/, " ")
     .replace(/\s*Edicimn\s*/, " ")
     .replace(/\s*Estandar\s*/, " ")
     .replace(/\s*Standard\s*/, " ")
-    .replace(/\s*Edition\s*/, " ")
+    // .replace(/\s*Edition\s*/, " ")
     .replace(/\s*para\s*/, " ")
     .replace(/\s*Standard\s*/, " ")
     .replace(/\s*Gold\s*/, " ")
@@ -295,6 +464,7 @@ function cleanGameTitle(title) {
     .replace(/\s+/g, " ")
     .replace(/^-=-=-=-=-=-=-=-=$|^=-=-=-=-=-=-=-=-=$|^—-----------------—$/, "")
     .replace(/\s*PlayStation4\s*/, " ")
+    .replace(/\s*-Lite\s*/, " ")
     .replace(
       /\s*PlayStation5\s*/,
       " "
@@ -309,18 +479,40 @@ function cleanGameTitle(title) {
 
   cleanTitle = cleanTitle.replace(/\s*\\?-\s*(?=\s|$)/g, "").trim();
 
+  cleanTitle = cleanTitle.replace(/\s*\+\s*CTR Nitro-Fueled/, "");
+  cleanTitle = cleanTitle.replace(/\s*\+\s*Nitros Oxide/, "");
+
+  console.log(
+    "title",
+    "===========",
+    title,
+    "cleanTitle",
+    "---------------",
+    cleanTitle
+  );
+
   return cleanTitle;
 }
 
 async function findSimilarTitle(cleanTitle) {
   try {
+    // ابتدا جستجوی دقیق انجام دهید (برای عملکرد سریع‌تر)
+    const exactMatch = await client.query(
+      `SELECT id, clean_title FROM games WHERE LOWER(clean_title) = LOWER($1) LIMIT 1`,
+      [cleanTitle]
+    );
+
+    if (exactMatch.rows.length > 0) {
+      return exactMatch.rows[0];
+    }
+
+    // سپس جستجوی فازی
     const result = await client.query(
       `SELECT id, clean_title, 
-              title_similarity(clean_title, $1) as similarity_score
+              SIMILARITY(LOWER(clean_title), LOWER($1)) as similarity_score
        FROM games 
-       WHERE clean_title % $1
-         AND title_similarity(clean_title, $1) >= $2
-       ORDER BY title_similarity(clean_title, $1) DESC 
+       WHERE SIMILARITY(LOWER(clean_title), LOWER($1)) >= $2
+       ORDER BY similarity_score DESC 
        LIMIT 1`,
       [cleanTitle, SIMILARITY_THRESHOLD]
     );
@@ -345,15 +537,11 @@ async function processGameTitle(originalTitle, postId) {
   const cleanTitle = cleanGameTitle(originalTitle);
   if (!cleanTitle || cleanTitle.length < 3) return null;
 
-  console.log("before");
   try {
     // جستجوی عنوان مشابه
-    console.log("cleanTitle ---- ", cleanTitle);
     const similarGame = await findSimilarTitle(cleanTitle);
-    console.log("similarGame ==== ", similarGame);
 
     if (similarGame) {
-      console.log(`Matched: ${originalTitle} → ${similarGame.clean_title}`);
       return similarGame.id;
     }
 
@@ -428,8 +616,6 @@ async function processPost(content, sourceFile) {
       .map((line) => line.trim())
       .filter((line) => line && !line.match(/id:|region|price/i));
 
-    console.log("gameLines ====== ", gameLines);
-
     for (const gameLine of gameLines) {
       const gameId = await processGameTitle(gameLine, postId);
       if (gameId) {
@@ -461,8 +647,6 @@ async function processFile(filePath) {
     const fileName = filePath.split(/[\\/]/).pop();
 
     for (const post of posts) {
-      console.log(post);
-
       await processPost(post, fileName);
     }
 
