@@ -73,6 +73,20 @@ function shouldSkipLine(line) {
     /^(سلام|ممنون|مجموعه|پلاس|همراه|اکانت)/,
     /[=*]{4,}/,
     /^[📥💰🔥❗️♻️✅🟢🎲🔻]/,
+    /\(some games on ea play\)/i,
+    /\d+\.\d+\.\d{4}/, // Matches dates like 12.4.2025
+    /ps[45]:\s*\d+\s*t\s*\(btc,usdt\)/i,
+    /\d+\)\s*(ps gameShare|log seller's|castore|playstation kingdom|ps-station market)/i,
+    /\d+xtreme ps4 & ps5/i,
+    /7 days to die/i,
+    /Log Seller/i,
+    /Acc 33521/i,
+    /Some Games On EA Play/i,
+    /R1 🇺🇸 USA/i,
+    /PS Plus/i,
+    /\+\s*Plus/i,
+    /🤞🏻 Online + Offline/i,
+    /Online + Offline/i,
   ];
 
   return skipPatterns.some((pattern) => pattern.test(normalizedLine));
@@ -170,6 +184,12 @@ function cleanGameTitle(title) {
       /^-=\-=\-=\-=\-=\-=\-=\-=\-$|^=\-=\-=\-=\-=\-=\-=\-=$|^—\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-—$|^—————————$/,
       "$1"
     )
+    .replace(/\s*NBA 75th Anniversary Edition/, "")
+    .replace(/\s*Deluxe Recruit Edition/, "")
+    .replace(/\s*Standard Recruit Edition/, "")
+    .replace(/\s*Galactic Edition/, "")
+    .replace(/\s*Standard Recruit Edition/, "")
+    .replace(/\s*STORM 4 ROAD TO BORUTO/, "")
     .replace(/\s*Championship Edition/, "")
     .replace(/\s*Survival Evolved/, "")
     .replace(/\s*Ultimate Survivor Edition/, "")
@@ -224,6 +244,7 @@ function cleanGameTitle(title) {
     .replace(/\s*Ultimate Edition for/, "")
     .replace(/\s*REMAKE & REBIRTH Digital Deluxe Twin Pack/, "")
     .replace(/\s*REBIRTH/, "")
+    .replace(/\s*Digital Exclusive Bundle/, "")
     .replace(/\s*Digital Edition deluxe/, "")
     .replace(/\s*25th Anniversary Digital Deluxe Edition/, "")
     .replace(/\s*Version: PS4/, "")
@@ -276,6 +297,7 @@ function cleanGameTitle(title) {
     .replace(/\s*Kobe Bryant Edition/, "")
     .replace(/\s*Road to Boruto/, "")
     .replace(/\s*Iceborne/, "")
+    .replace(/\s*Digital Deluxe Edition ---> PS5/, "")
     .replace(/\s*Iceborne Master Edition/, "")
     .replace(/\+\s*Sunbreak/, "")
     .replace(/\s*The Official Videogame/, "")
@@ -285,6 +307,7 @@ function cleanGameTitle(title) {
     .replace(/\s*Superstar Edition/, "")
     .replace(/\s*75th Anniversary Edition/, "")
     .replace(/\s*Kobe Bryant/, "")
+    .replace(/\s*‎: Legion of Dawn Edition/, "")
     .replace(/\s*All-Star Edition/, "")
     .replace(/\s*Edizione Standard/, "")
     .replace(/\s*Originals Edition/, "")
