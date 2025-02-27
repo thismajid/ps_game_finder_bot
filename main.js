@@ -8,12 +8,13 @@ const client = new Client({ connectionString: process.env.DATABASE_URL });
 
 // لیست فایل‌های ورودی
 const INPUT_FILES = [
-  process.env.FILE_PATH_1,
-  process.env.FILE_PATH_2,
-  process.env.FILE_PATH_3,
-  process.env.FILE_PATH_4,
-  process.env.FILE_PATH_5,
-  process.env.FILE_PATH_6
+  // process.env.FILE_PATH_1,
+  // process.env.FILE_PATH_2,
+  // process.env.FILE_PATH_3,
+  // process.env.FILE_PATH_4,
+  // process.env.FILE_PATH_5,
+  // process.env.FILE_PATH_6,
+  process.env.FILE_PATH_7,
 ].filter(Boolean);
 
 // تنظیمات فازی
@@ -611,8 +612,14 @@ async function processPost(content, sourceFile) {
 
     // استخراج اطلاعات پست
     const regionMatch = content.match(/🌐region\s*(\d+)/i);
-    const pricePS4Match = content.match(/💰price ps4\s*:\s*(\d+)/i);
-    const pricePS5Match = content.match(/💰price ps5\s*:\s*(\d+)/i);
+    const pricePS4Match =
+      content.match(/💰price ps4\s*:\s*(\d+)/i) ||
+      content.match(/💸 Price PS4\s*:\s*(\d+)/i) ||
+      content.match(/♻️Price\s*:\s*(\d+)/i);
+    const pricePS5Match =
+      content.match(/💰price ps5\s*:\s*(\d+)/i) ||
+      content.match(/💸 Price PS5\s*:\s*(\d+)/i) ||
+      content.match(/♻️Price\s*:\s*(\d+)/i);
 
     // درج پست در دیتابیس
     await client.query(
