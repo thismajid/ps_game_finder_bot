@@ -108,18 +108,27 @@ async function checkMembership(userId) {
   return notJoinedChannels;
 }
 
+// تابع بررسی وجود بازی در لیست کاربر
+async function hasUserGames(userId) {
+  try {
+    const result = await pool.query(
+      `SELECT COUNT(*) FROM user_games 
+       WHERE user_id = (SELECT id FROM users WHERE telegram_id = $1)`,
+      [userId]
+    );
+    return result.rows[0].count > 0;
+  } catch (error) {
+    console.error("خطا در بررسی بازی‌های کاربر:", error);
+    return false;
+  }
+}
+
 // تابع نمایش منوی کامل با بررسی وضعیت لیست بازی‌ها
 async function showFullMenu(ctx) {
   const userId = ctx.from.id;
   
-  // بررسی تعداد بازی‌های انتخاب شده
-  const gamesCount = await pool.query(
-    `SELECT COUNT(*) FROM user_games 
-     WHERE user_id = (SELECT id FROM users WHERE telegram_id = $1)`,
-    [userId]
-  );
-  
-  const hasGames = gamesCount.rows[0].count > 0;
+  // بررسی وجود بازی در لیست کاربر
+  const hasGames = await hasUserGames(userId);
   
   const mainKeyboard = new InlineKeyboard()
     .text("🎲 جستجوی بازی", "search_games")
@@ -319,14 +328,10 @@ bot.command("select_console", async (ctx) => {
     return;
   }
   
-  // بررسی تعداد بازی‌های انتخاب شده
-  const gamesCount = await pool.query(
-    `SELECT COUNT(*) FROM user_games 
-     WHERE user_id = (SELECT id FROM users WHERE telegram_id = $1)`,
-    [userId]
-  );
+  // بررسی وجود بازی در لیست کاربر
+  const hasGames = await hasUserGames(userId);
   
-  if (gamesCount.rows[0].count === 0) {
+  if (!hasGames) {
     return await ctx.reply("❌ ابتدا باید حداقل یک بازی به لیست خود اضافه کنید.", {
       reply_markup: new InlineKeyboard().text("🔙 بازگشت به منو", "back_to_menu")
     });
@@ -491,19 +496,17 @@ bot.callbackQuery("my_games_list", async (ctx) => {
 bot.callbackQuery("select_console_menu", async (ctx) => {
   const userId = ctx.from.id;
   
-  // بررسی تعداد بازی‌های انتخاب شده
-  const gamesCount = await pool.query(
-    `SELECT COUNT(*) FROM user_games 
-     WHERE user_id = (SELECT id FROM users WHERE telegram_id = $1)`,
-    [userId]
-  );
+  // بررسی وجود بازی در لیست کاربر
+  const hasGames = await hasUserGames(userId);
   
-  if (gamesCount.rows[0].count === 0) {
-    await ctx.reply("❌ ابتدا باید حداقل یک بازی به لیست خود اضافه کنید.", {
+  if (!hasGames) {
+    await ctx.answerCallbackQuery({ 
+      text: "❌ ابتدا باید حداقل یک بازی انتخاب کنید!",
+      show_alert: true 
+    });
+    return await ctx.reply("❌ ابتدا باید حداقل یک بازی به لیست خود اضافه کنید.", {
       reply_markup: new InlineKeyboard().text("🔙 بازگشت به منو", "back_to_menu")
     });
-    await ctx.answerCallbackQuery();
-    return;
   }
   
   const keyboard = new InlineKeyboard()
@@ -683,26 +686,15 @@ bot.callbackQuery(/^select_game:(\d+)$/, async (ctx) => {
     parse_mode: "Markdown",
   });
 
-  // بررسی تعداد بازی‌های انتخاب شده برای نمایش گزینه‌های مناسب
-  const gamesCount = await pool.query(
-    `SELECT COUNT(*) FROM user_games 
-     WHERE user_id = (SELECT id FROM users WHERE telegram_id = $1)`,
-    [userId]
-  );
-  
   // ایجاد کیبورد با گزینه‌های مناسب
   const keyboard = new InlineKeyboard()
     .text("1) اسم بازی دیگه‌ای رو وارد کنید", "option_1")
     .row()
     .text("2) لیست بازیهای انتخابیتون رو ببینید", "option_2")
-    .row();
-  
-  // نمایش گزینه انتخاب کنسول فقط اگر حداقل یک بازی انتخاب شده باشد
-  if (gamesCount.rows[0].count > 0) {
-    keyboard.text("3) کنسولی که میخواید براش بازی تهیه کنید رو انتخاب کنید", "option_3").row();
-  }
-  
-  keyboard.text("🔙 بازگشت به منو", "back_to_menu");
+    .row()
+    .text("3) کنسولی که میخواید براش بازی تهیه کنید رو انتخاب کنید", "option_3")
+    .row()
+    .text("🔙 بازگشت به منو", "back_to_menu");
 
   await ctx.reply(
     " بازی به لیستتون اضافه شد🙂‍↕️✔️\n\n" +
@@ -756,19 +748,17 @@ bot.callbackQuery("option_2", async (ctx) => {
 bot.callbackQuery("option_3", async (ctx) => {
   const userId = ctx.from.id;
   
-  // بررسی تعداد بازی‌های انتخاب شده
-  const gamesCount = await pool.query(
-    `SELECT COUNT(*) FROM user_games 
-     WHERE user_id = (SELECT id FROM users WHERE telegram_id = $1)`,
-    [userId]
-  );
+  // بررسی وجود بازی در لیست کاربر
+  const hasGames = await hasUserGames(userId);
   
-  if (gamesCount.rows[0].count === 0) {
-    await ctx.reply("❌ ابتدا باید حداقل یک بازی به لیست خود اضافه کنید.", {
+  if (!hasGames) {
+    await ctx.answerCallbackQuery({ 
+      text: "❌ ابتدا باید حداقل یک بازی انتخاب کنید!",
+      show_alert: true 
+    });
+    return await ctx.reply("❌ ابتدا باید حداقل یک بازی به لیست خود اضافه کنید.", {
       reply_markup: new InlineKeyboard().text("🔙 بازگشت به منو", "back_to_menu")
     });
-    await ctx.answerCallbackQuery();
-    return;
   }
   
   const keyboard = new InlineKeyboard()
