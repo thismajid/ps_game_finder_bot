@@ -8,13 +8,12 @@ const client = new Client({ connectionString: process.env.DATABASE_URL });
 
 // لیست فایل‌های ورودی
 const INPUT_FILES = [
-  // process.env.FILE_PATH_1,
-  // process.env.FILE_PATH_2,
-  // process.env.FILE_PATH_3,
-  // process.env.FILE_PATH_4,
-  // process.env.FILE_PATH_5,
-  // process.env.FILE_PATH_6,
-  process.env.FILE_PATH_7,
+  process.env.FILE_PATH_1,
+  process.env.FILE_PATH_2,
+  process.env.FILE_PATH_3,
+  process.env.FILE_PATH_4,
+  process.env.FILE_PATH_5,
+  process.env.FILE_PATH_6
 ].filter(Boolean);
 
 // تنظیمات فازی
