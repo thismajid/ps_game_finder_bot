@@ -33,6 +33,23 @@ const requiredChannels = [
   { id: "-1001066763571", invite_link: "https://t.me/CA_Storre" },
 ];
 
+// تنظیم منوی دستورات ربات (دکمه منو در پایین صفحه چت)
+async function setupBotCommands() {
+  try {
+    await bot.api.setMyCommands([
+      { command: "start", description: "شروع کار با ربات" },
+      { command: "menu", description: "نمایش منوی اصلی" },
+      { command: "search", description: "جستجوی بازی" },
+      { command: "my_games", description: "لیست بازی‌های من" },
+      { command: "select_console", description: "انتخاب کنسول" },
+      { command: "help", description: "راهنمای استفاده از ربات" }
+    ]);
+    console.log("✅ منوی دستورات ربات با موفقیت تنظیم شد.");
+  } catch (error) {
+    console.error("❌ خطا در تنظیم منوی دستورات:", error);
+  }
+}
+
 // ایجاد جداول دیتابیس
 async function createTables() {
   try {
@@ -188,6 +205,46 @@ bot.command("menu", async (ctx) => {
   await showFullMenu(ctx);
 });
 
+// دستور جستجو
+bot.command("search", async (ctx) => {
+  // بررسی عضویت در کانال‌ها
+  const notJoinedChannels = await checkMembership(ctx.from.id);
+  if (notJoinedChannels.length > 0) {
+    await showJoinMessage(ctx, notJoinedChannels);
+    return;
+  }
+  await ctx.reply("🚩 لطفاً نام بازی مورد نظر خود را وارد کنید:");
+});
+
+// دستور راهنما
+bot.command("help", async (ctx) => {
+  // بررسی عضویت در کانال‌ها
+  const notJoinedChannels = await checkMembership(ctx.from.id);
+  if (notJoinedChannels.length > 0) {
+    await showJoinMessage(ctx, notJoinedChannels);
+    return;
+  }
+  
+  const helpText = 
+    "📚 *راهنمای دستورات ربات* 📚\n\n" +
+    "🔹 `/start` - شروع کار با ربات\n" +
+    "🔹 `/menu` - نمایش منوی اصلی\n" +
+    "🔹 `/search` - جستجوی بازی\n" +
+    "🔹 `/my_games` - مشاهده لیست بازی‌های انتخاب شده\n" +
+    "🔹 `/select_console` - انتخاب کنسول برای جستجوی بازی‌ها\n\n" +
+    "💡 *نحوه استفاده:*\n" +
+    "1️⃣ ابتدا نام بازی مورد نظر خود را تایپ کنید\n" +
+    "2️⃣ از لیست پیشنهادی، بازی مورد نظر را انتخاب کنید\n" +
+    "3️⃣ تا 10 بازی می‌توانید به لیست خود اضافه کنید\n" +
+    "4️⃣ سپس کنسول مورد نظر (PS4 یا PS5) را انتخاب کنید\n" +
+    "5️⃣ پست‌های مرتبط با بازی‌های شما نمایش داده خواهد شد";
+
+  await ctx.reply(helpText, { 
+    parse_mode: "Markdown",
+    reply_markup: new InlineKeyboard().text("🔙 بازگشت به منو", "back_to_menu")
+  });
+});
+
 // هندلر دکمه "عضو شدم"
 bot.callbackQuery("check_membership", async (ctx) => {
   const userId = ctx.from.id;
@@ -216,6 +273,13 @@ bot.callbackQuery("check_membership", async (ctx) => {
 // ✅ دریافت بازی‌های انتخاب‌شده
 bot.command("my_games", async (ctx) => {
   const userId = ctx.from.id;
+  
+  // بررسی عضویت در کانال‌ها
+  const notJoinedChannels = await checkMembership(userId);
+  if (notJoinedChannels.length > 0) {
+    await showJoinMessage(ctx, notJoinedChannels);
+    return;
+  }
 
   const result = await pool.query(
     `SELECT games.clean_title, games.id 
@@ -248,7 +312,14 @@ bot.command("my_games", async (ctx) => {
 bot.command("select_console", async (ctx) => {
   const userId = ctx.from.id;
   
-  // بررسی اینکه آیا کاربر بازی انتخاب کرده است
+  // بررسی عضویت در کانال‌ها
+  const notJoinedChannels = await checkMembership(userId);
+  if (notJoinedChannels.length > 0) {
+    await showJoinMessage(ctx, notJoinedChannels);
+    return;
+  }
+  
+  // بررسی تعداد بازی‌های انتخاب شده
   const gamesCount = await pool.query(
     `SELECT COUNT(*) FROM user_games 
      WHERE user_id = (SELECT id FROM users WHERE telegram_id = $1)`,
@@ -256,7 +327,7 @@ bot.command("select_console", async (ctx) => {
   );
   
   if (gamesCount.rows[0].count === 0) {
-    return await ctx.reply("❌ شما هنوز هیچ بازی‌ای انتخاب نکرده‌اید. ابتدا باید حداقل یک بازی به لیست خود اضافه کنید.", {
+    return await ctx.reply("❌ ابتدا باید حداقل یک بازی به لیست خود اضافه کنید.", {
       reply_markup: new InlineKeyboard().text("🔙 بازگشت به منو", "back_to_menu")
     });
   }
@@ -288,18 +359,14 @@ bot.callbackQuery(/^console:(ps4|ps5)$/, async (ctx) => {
     );
 
     if (gamesResult.rows.length === 0) {
-      return await ctx.reply("❌ شما هیچ بازی‌ای انتخاب نکرده‌اید.", {
-        reply_markup: new InlineKeyboard().text("🔙 بازگشت به منو", "back_to_menu")
-      });
+      return await ctx.reply("❌ شما هیچ بازی‌ای انتخاب نکرده‌اید.");
     }
 
     const gameIds = gamesResult.rows.map((row) => row.id);
 
     // چک کنیم که آرایه خالی نباشد و اعداد صحیح باشند
     if (gameIds.length === 0) {
-      return await ctx.reply("❌ شما هیچ بازی‌ای انتخاب نکرده‌اید.", {
-        reply_markup: new InlineKeyboard().text("🔙 بازگشت به منو", "back_to_menu")
-      });
+      return await ctx.reply("❌ شما هیچ بازی‌ای انتخاب نکرده‌اید.");
     }
 
     // جستجوی پست‌های مرتبط با بازی‌ها و کنسول انتخابی
@@ -336,9 +403,7 @@ bot.callbackQuery(/^console:(ps4|ps5)$/, async (ctx) => {
     });
   } catch (error) {
     console.error("❌ خطا در دریافت پست‌ها:", error);
-    await ctx.reply("مشکلی پیش آمد. لطفاً دوباره امتحان کنید.", {
-      reply_markup: new InlineKeyboard().text("🔙 بازگشت به منو", "back_to_menu")
-    });
+    await ctx.reply("مشکلی پیش آمد. لطفاً دوباره امتحان کنید.");
   }
 });
 
@@ -426,7 +491,7 @@ bot.callbackQuery("my_games_list", async (ctx) => {
 bot.callbackQuery("select_console_menu", async (ctx) => {
   const userId = ctx.from.id;
   
-  // بررسی اینکه آیا کاربر بازی انتخاب کرده است
+  // بررسی تعداد بازی‌های انتخاب شده
   const gamesCount = await pool.query(
     `SELECT COUNT(*) FROM user_games 
      WHERE user_id = (SELECT id FROM users WHERE telegram_id = $1)`,
@@ -434,13 +499,11 @@ bot.callbackQuery("select_console_menu", async (ctx) => {
   );
   
   if (gamesCount.rows[0].count === 0) {
-    await ctx.answerCallbackQuery({ 
-      text: "❌ ابتدا باید حداقل یک بازی انتخاب کنید!",
-      show_alert: true 
-    });
-    return await ctx.reply("❌ شما هنوز هیچ بازی‌ای انتخاب نکرده‌اید. ابتدا باید حداقل یک بازی به لیست خود اضافه کنید.", {
+    await ctx.reply("❌ ابتدا باید حداقل یک بازی به لیست خود اضافه کنید.", {
       reply_markup: new InlineKeyboard().text("🔙 بازگشت به منو", "back_to_menu")
     });
+    await ctx.answerCallbackQuery();
+    return;
   }
   
   const keyboard = new InlineKeyboard()
@@ -467,6 +530,7 @@ bot.callbackQuery("commands_help", async (ctx) => {
     "📚 *راهنمای دستورات ربات* 📚\n\n" +
     "🔹 `/start` - شروع کار با ربات\n" +
     "🔹 `/menu` - نمایش منوی اصلی\n" +
+    "🔹 `/search` - جستجوی بازی\n" +
     "🔹 `/my_games` - مشاهده لیست بازی‌های انتخاب شده\n" +
     "🔹 `/select_console` - انتخاب کنسول برای جستجوی بازی‌ها\n\n" +
     "💡 *نحوه استفاده:*\n" +
@@ -619,7 +683,7 @@ bot.callbackQuery(/^select_game:(\d+)$/, async (ctx) => {
     parse_mode: "Markdown",
   });
 
-  // بررسی تعداد بازی‌های انتخاب شده
+  // بررسی تعداد بازی‌های انتخاب شده برای نمایش گزینه‌های مناسب
   const gamesCount = await pool.query(
     `SELECT COUNT(*) FROM user_games 
      WHERE user_id = (SELECT id FROM users WHERE telegram_id = $1)`,
@@ -692,7 +756,7 @@ bot.callbackQuery("option_2", async (ctx) => {
 bot.callbackQuery("option_3", async (ctx) => {
   const userId = ctx.from.id;
   
-  // بررسی اینکه آیا کاربر بازی انتخاب کرده است
+  // بررسی تعداد بازی‌های انتخاب شده
   const gamesCount = await pool.query(
     `SELECT COUNT(*) FROM user_games 
      WHERE user_id = (SELECT id FROM users WHERE telegram_id = $1)`,
@@ -700,13 +764,11 @@ bot.callbackQuery("option_3", async (ctx) => {
   );
   
   if (gamesCount.rows[0].count === 0) {
-    await ctx.answerCallbackQuery({ 
-      text: "❌ ابتدا باید حداقل یک بازی انتخاب کنید!",
-      show_alert: true 
-    });
-    return await ctx.reply("❌ شما هنوز هیچ بازی‌ای انتخاب نکرده‌اید. ابتدا باید حداقل یک بازی به لیست خود اضافه کنید.", {
+    await ctx.reply("❌ ابتدا باید حداقل یک بازی به لیست خود اضافه کنید.", {
       reply_markup: new InlineKeyboard().text("🔙 بازگشت به منو", "back_to_menu")
     });
+    await ctx.answerCallbackQuery();
+    return;
   }
   
   const keyboard = new InlineKeyboard()
@@ -722,7 +784,11 @@ bot.callbackQuery("option_3", async (ctx) => {
 });
 
 // شروع ربات
-createTables().then(() => {
+async function startBot() {
+  await createTables();
+  await setupBotCommands();
   console.log("🤖 ربات در حال اجراست...");
   bot.start();
-});
+}
+
+startBot();
