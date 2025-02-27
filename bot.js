@@ -91,15 +91,31 @@ async function checkMembership(userId) {
   return notJoinedChannels;
 }
 
-// تابع نمایش منوی کامل
+// تابع نمایش منوی کامل با بررسی وضعیت لیست بازی‌ها
 async function showFullMenu(ctx) {
+  const userId = ctx.from.id;
+  
+  // بررسی تعداد بازی‌های انتخاب شده
+  const gamesCount = await pool.query(
+    `SELECT COUNT(*) FROM user_games 
+     WHERE user_id = (SELECT id FROM users WHERE telegram_id = $1)`,
+    [userId]
+  );
+  
+  const hasGames = gamesCount.rows[0].count > 0;
+  
   const mainKeyboard = new InlineKeyboard()
     .text("🎲 جستجوی بازی", "search_games")
     .row()
     .text("📋 لیست بازی‌های من", "my_games_list")
-    .row()
-    .text("🎮 انتخاب کنسول", "select_console_menu")
-    .row()
+    .row();
+  
+  // نمایش دکمه انتخاب کنسول فقط اگر کاربر بازی انتخاب کرده باشد
+  if (hasGames) {
+    mainKeyboard.text("🎮 انتخاب کنسول", "select_console_menu").row();
+  }
+  
+  mainKeyboard
     .text("💡 آموزش استفاده از ربات", "tutorial")
     .row()
     .text("❓ راهنمای دستورات", "commands_help");
@@ -210,7 +226,9 @@ bot.command("my_games", async (ctx) => {
   );
 
   if (result.rows.length === 0) {
-    return await ctx.reply("❌ شما هیچ بازی‌ای انتخاب نکرده‌اید.");
+    return await ctx.reply("❌ شما هیچ بازی‌ای انتخاب نکرده‌اید.", {
+      reply_markup: new InlineKeyboard().text("🔙 بازگشت به منو", "back_to_menu")
+    });
   }
 
   const keyboard = new InlineKeyboard();
@@ -228,6 +246,21 @@ bot.command("my_games", async (ctx) => {
 
 // ارسال دکمه‌های انتخاب کنسول
 bot.command("select_console", async (ctx) => {
+  const userId = ctx.from.id;
+  
+  // بررسی اینکه آیا کاربر بازی انتخاب کرده است
+  const gamesCount = await pool.query(
+    `SELECT COUNT(*) FROM user_games 
+     WHERE user_id = (SELECT id FROM users WHERE telegram_id = $1)`,
+    [userId]
+  );
+  
+  if (gamesCount.rows[0].count === 0) {
+    return await ctx.reply("❌ شما هنوز هیچ بازی‌ای انتخاب نکرده‌اید. ابتدا باید حداقل یک بازی به لیست خود اضافه کنید.", {
+      reply_markup: new InlineKeyboard().text("🔙 بازگشت به منو", "back_to_menu")
+    });
+  }
+  
   const keyboard = new InlineKeyboard()
     .text("PS4", "console:ps4")
     .text("PS5", "console:ps5")
@@ -255,14 +288,18 @@ bot.callbackQuery(/^console:(ps4|ps5)$/, async (ctx) => {
     );
 
     if (gamesResult.rows.length === 0) {
-      return await ctx.reply("❌ شما هیچ بازی‌ای انتخاب نکرده‌اید.");
+      return await ctx.reply("❌ شما هیچ بازی‌ای انتخاب نکرده‌اید.", {
+        reply_markup: new InlineKeyboard().text("🔙 بازگشت به منو", "back_to_menu")
+      });
     }
 
     const gameIds = gamesResult.rows.map((row) => row.id);
 
     // چک کنیم که آرایه خالی نباشد و اعداد صحیح باشند
     if (gameIds.length === 0) {
-      return await ctx.reply("❌ شما هیچ بازی‌ای انتخاب نکرده‌اید.");
+      return await ctx.reply("❌ شما هیچ بازی‌ای انتخاب نکرده‌اید.", {
+        reply_markup: new InlineKeyboard().text("🔙 بازگشت به منو", "back_to_menu")
+      });
     }
 
     // جستجوی پست‌های مرتبط با بازی‌ها و کنسول انتخابی
@@ -278,7 +315,9 @@ bot.callbackQuery(/^console:(ps4|ps5)$/, async (ctx) => {
     );
 
     if (postsResult.rows.length === 0) {
-      return await ctx.reply("❌ هیچ پستی برای بازی‌های شما یافت نشد.");
+      return await ctx.reply("❌ هیچ پستی برای بازی‌های شما یافت نشد.", {
+        reply_markup: new InlineKeyboard().text("🔙 بازگشت به منو", "back_to_menu")
+      });
     }
 
     for (const post of postsResult.rows) {
@@ -297,7 +336,9 @@ bot.callbackQuery(/^console:(ps4|ps5)$/, async (ctx) => {
     });
   } catch (error) {
     console.error("❌ خطا در دریافت پست‌ها:", error);
-    await ctx.reply("مشکلی پیش آمد. لطفاً دوباره امتحان کنید.");
+    await ctx.reply("مشکلی پیش آمد. لطفاً دوباره امتحان کنید.", {
+      reply_markup: new InlineKeyboard().text("🔙 بازگشت به منو", "back_to_menu")
+    });
   }
 });
 
@@ -383,6 +424,25 @@ bot.callbackQuery("my_games_list", async (ctx) => {
 
 // هندلر برای دکمه انتخاب کنسول از منو
 bot.callbackQuery("select_console_menu", async (ctx) => {
+  const userId = ctx.from.id;
+  
+  // بررسی اینکه آیا کاربر بازی انتخاب کرده است
+  const gamesCount = await pool.query(
+    `SELECT COUNT(*) FROM user_games 
+     WHERE user_id = (SELECT id FROM users WHERE telegram_id = $1)`,
+    [userId]
+  );
+  
+  if (gamesCount.rows[0].count === 0) {
+    await ctx.answerCallbackQuery({ 
+      text: "❌ ابتدا باید حداقل یک بازی انتخاب کنید!",
+      show_alert: true 
+    });
+    return await ctx.reply("❌ شما هنوز هیچ بازی‌ای انتخاب نکرده‌اید. ابتدا باید حداقل یک بازی به لیست خود اضافه کنید.", {
+      reply_markup: new InlineKeyboard().text("🔙 بازگشت به منو", "back_to_menu")
+    });
+  }
+  
   const keyboard = new InlineKeyboard()
     .text("PS4", "console:ps4")
     .text("PS5", "console:ps5")
@@ -559,15 +619,26 @@ bot.callbackQuery(/^select_game:(\d+)$/, async (ctx) => {
     parse_mode: "Markdown",
   });
 
-  // ایجاد کیبورد با سه گزینه
+  // بررسی تعداد بازی‌های انتخاب شده
+  const gamesCount = await pool.query(
+    `SELECT COUNT(*) FROM user_games 
+     WHERE user_id = (SELECT id FROM users WHERE telegram_id = $1)`,
+    [userId]
+  );
+  
+  // ایجاد کیبورد با گزینه‌های مناسب
   const keyboard = new InlineKeyboard()
     .text("1) اسم بازی دیگه‌ای رو وارد کنید", "option_1")
     .row()
     .text("2) لیست بازیهای انتخابیتون رو ببینید", "option_2")
-    .row()
-    .text("3) کنسولی که میخواید براش بازی تهیه کنید رو انتخاب کنید", "option_3")
-    .row()
-    .text("🔙 بازگشت به منو", "back_to_menu");
+    .row();
+  
+  // نمایش گزینه انتخاب کنسول فقط اگر حداقل یک بازی انتخاب شده باشد
+  if (gamesCount.rows[0].count > 0) {
+    keyboard.text("3) کنسولی که میخواید براش بازی تهیه کنید رو انتخاب کنید", "option_3").row();
+  }
+  
+  keyboard.text("🔙 بازگشت به منو", "back_to_menu");
 
   await ctx.reply(
     " بازی به لیستتون اضافه شد🙂‍↕️✔️\n\n" +
@@ -619,6 +690,25 @@ bot.callbackQuery("option_2", async (ctx) => {
 
 // هندلر گزینه 3
 bot.callbackQuery("option_3", async (ctx) => {
+  const userId = ctx.from.id;
+  
+  // بررسی اینکه آیا کاربر بازی انتخاب کرده است
+  const gamesCount = await pool.query(
+    `SELECT COUNT(*) FROM user_games 
+     WHERE user_id = (SELECT id FROM users WHERE telegram_id = $1)`,
+    [userId]
+  );
+  
+  if (gamesCount.rows[0].count === 0) {
+    await ctx.answerCallbackQuery({ 
+      text: "❌ ابتدا باید حداقل یک بازی انتخاب کنید!",
+      show_alert: true 
+    });
+    return await ctx.reply("❌ شما هنوز هیچ بازی‌ای انتخاب نکرده‌اید. ابتدا باید حداقل یک بازی به لیست خود اضافه کنید.", {
+      reply_markup: new InlineKeyboard().text("🔙 بازگشت به منو", "back_to_menu")
+    });
+  }
+  
   const keyboard = new InlineKeyboard()
     .text("PS4", "console:ps4")
     .text("PS5", "console:ps5")
