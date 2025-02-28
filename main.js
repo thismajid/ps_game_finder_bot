@@ -168,6 +168,8 @@ function cleanGameTitle(title) {
     "eFootball\\s*PES\\s*2021\\s*SEASON\\s*UPDATE": "PES 2021",
     "EA\\s*SPORTS\\s*FIFA\\s*17": "FIFA 17",
     "EA\\s*SPORTS\\s*FIFA\\s*23": "FIFA 23",
+    "EA\\s*SPORTS\\s*FIFA\\s*20": "FIFA 20",
+    "EA\\s*SPORTS\\s*FIFA\\s*16": "FIFA 16",
   };
 
   // Apply title mappings
