@@ -13,8 +13,7 @@ const INPUT_FILES = [
   process.env.FILE_PATH_3,
   process.env.FILE_PATH_4,
   process.env.FILE_PATH_5,
-  process.env.FILE_PATH_6,
-  // process.env.FILE_PATH_7,
+  process.env.FILE_PATH_6
 ].filter(Boolean);
 
 // تنظیمات فازی
@@ -166,18 +165,24 @@ function cleanGameTitle(title) {
     "FOR\\s*HONOR": "For Honor",
     "Ghost\\s*of\\s*Tsushima\\s*Legends": "Ghost of Tsushima",
     "Goat\\s*Simulator\\s*GOATY": "Goat Simulator",
+    "eFootball\\s*PES\\s*2021\\s*SEASON\\s*UPDATE": "PES 2021",
   };
 
   // Apply title mappings
   for (const [pattern, replacement] of Object.entries(titleMappings)) {
+    console.log("b ", cleanTitle);
     const regex = new RegExp(pattern, "i");
     if (regex.test(cleanTitle)) {
+      console.log("c   ", cleanTitle);
       cleanTitle = replacement;
+      console.log("r   ", replacement);
       break;
     }
   }
 
-  cleanTitle = title
+  console.log("zzzzzzzzzz ", cleanTitle);
+
+  cleanTitle = cleanTitle
     // حذف کاراکترهای اضافی و یکسان‌سازی فاصله‌ها
     .replace(/\s+/g, " ")
     .trim()
@@ -206,6 +211,7 @@ function cleanGameTitle(title) {
     .replace(/\s*Warmastered Edition/, "")
     .replace(/\s*The Fire Fades Edition/, "")
     .replace(/\s*REMASTERED/, "")
+    .replace(/\s*SEASON UPDATE/, "")
     .replace(/\s*HD Collection/, "")
     .replace(/\s*HD Collection & 4SE Bundle PS4™ & PS5™/, "")
     // .replace(/\s*+ Vergil/, "")
@@ -497,6 +503,8 @@ function cleanGameTitle(title) {
         .trim()
     );
 
+  console.log("xxxxxxx ", cleanTitle);
+
   editions.forEach((editionPattern) => {
     cleanTitle = cleanTitle.replace(editionPattern, "");
   });
@@ -506,14 +514,7 @@ function cleanGameTitle(title) {
   cleanTitle = cleanTitle.replace(/\s*\+\s*CTR Nitro-Fueled/, "");
   cleanTitle = cleanTitle.replace(/\s*\+\s*Nitros Oxide/, "");
 
-  console.log(
-    "title",
-    "===========",
-    title,
-    "cleanTitle",
-    "---------------",
-    cleanTitle
-  );
+  console.log("after cleaning        ", cleanTitle);
 
   return cleanTitle;
 }
@@ -592,18 +593,6 @@ async function processPost(content, sourceFile) {
     if (!idMatch) return;
     const postId = parseInt(idMatch[1]);
 
-    // // جدا کردن خط اول (نام بازی) از بقیه متن
-    // const lines = content.split("\n");
-    // console.log(lines);
-
-    // if (lines.length === 0) return null;
-
-    // // فقط در خط اول (نام بازی) بک‌اسلش قبل از خط تیره را حذف می‌کنیم
-    // const gameNameFixed = lines[0].replace(/\\\-/g, "-");
-
-    // // جایگزین کردن خط اول اصلاح شده و ترکیب مجدد با بقیه خطوط
-    // const cleanContent = [gameNameFixed, ...lines.slice(1)].join("\n");
-
     // // پردازش محتوا
     const cleanContent = content
       .replace(/id:\s*\d+\s*\n/i, "")
@@ -616,12 +605,15 @@ async function processPost(content, sourceFile) {
       content.match(/💰price ps4\s*:\s*(\d+)/i) ||
       content.match(/💸 Price PS4\s*:\s*(\d+)/i) ||
       content.match(/♻️Price\s*:\s*(\d+)/i) ||
-      content.match(/💷 Price\s*:\s*(\d+)/i);
+      content.match(/💷 Price\s*:\s*(\d+)/i) ||
+      content.match(/PS4:\s*:\s*(\d+)/i) ||
+      content.match(/♻️Price\s*:\s*(\d+)/i);
     const pricePS5Match =
       content.match(/💰price ps5\s*:\s*(\d+)/i) ||
       content.match(/💸 Price PS5\s*:\s*(\d+)/i) ||
       content.match(/♻️Price\s*:\s*(\d+)/i) ||
-      content.match(/💷 Price\s*:\s*(\d+)/i);
+      content.match(/💷 Price\s*:\s*(\d+)/i) ||
+      content.match(/PS5:\s*:\s*(\d+)/i);
 
     // درج پست در دیتابیس
     await client.query(
