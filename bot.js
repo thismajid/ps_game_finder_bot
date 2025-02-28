@@ -718,7 +718,7 @@ bot.callbackQuery("tutorial", async (ctx) => {
 // ✅ جستجوی بازی‌ها
 bot.on("message:text", async (ctx) => {
   const userId = ctx.from.id;
-  const searchQuery = ctx.message.text.trim();
+  let searchQuery = ctx.message.text.trim();
 
   // بررسی عضویت در کانال‌ها
   const notJoinedChannels = await checkMembership(userId);
@@ -753,10 +753,11 @@ bot.on("message:text", async (ctx) => {
     return;
   }
 
+  searchQuery = userInput.replace(/\s+/g, "[\\s-]"); // فاصله یا خط تیره
   // جستجوی بازی در دیتابیس
   const result = await pool.query(
-    "SELECT id, clean_title FROM games WHERE clean_title ILIKE $1 LIMIT 20",
-    [`%${searchQuery}%`]
+    "SELECT id, clean_title FROM games WHERE clean_title ~* $1 LIMIT 20",
+    [`.*${searchQuery}.*`]
   );
 
   if (result.rows.length === 0) {
