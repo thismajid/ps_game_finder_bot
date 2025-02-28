@@ -582,6 +582,10 @@ async function processPost(content, sourceFile) {
   try {
     const idMatch = content.match(/id:\s*(\d+)/i);
     if (!idMatch) return;
+    const isAds = content
+      ? /Buy \(خرید\)/.test(content) || /جوین بشید و پیام بدید/.test(content)
+      : false;
+    if (isAds) return;
     const postId = parseInt(idMatch[1]);
 
     // // پردازش محتوا
