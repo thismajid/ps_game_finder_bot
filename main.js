@@ -13,7 +13,8 @@ const INPUT_FILES = [
   process.env.FILE_PATH_3,
   process.env.FILE_PATH_4,
   process.env.FILE_PATH_5,
-  process.env.FILE_PATH_6
+  process.env.FILE_PATH_6,
+  // process.env.FILE_PATH_7,
 ].filter(Boolean);
 
 // تنظیمات فازی
@@ -114,7 +115,9 @@ function shouldSkipLine(line) {
     /PS Plus/i,
     /\+\s*Plus/i,
     /🤞🏻 Online + Offline/i,
-    /Online + Offline/i,
+    /🤞🏻\s*Online\s*\+\s*Offline/i, // Ignore "🤞🏻 Online + Offline"
+    /\*?بازی\s*درخواستی/i, // Ignore "*بازی درخواستی"
+    /Middle-earth\s*Shadow/i, // Ignore "Middle-earth Shadow"
   ];
 
   return skipPatterns.some((pattern) => pattern.test(normalizedLine));
@@ -176,12 +179,6 @@ function cleanGameTitle(title) {
     "Bloodborne(?:\\s*(?:Game of the Year|The Old Hunters))?": "Bloodborne",
     "Call\\s*of\\s*Duty(?:\\s*[:\\s])?\\s*Black\\s*Ops\\s*(?:III|3)(?:\\s*Zombies\\s*Chronicles)?":
       "Call of Duty Black Ops III",
-    // "Call\\s*of\\s*Duty(?:\\s*[:\\s])?\\s*Modern\\s*Warfare":
-    //   "Call of Duty Modern Warfare",
-    // "Call\\s*of\\s*Duty(?:\\s*[:\\s])?\\s*Modern\\s*Warfare(?:\\s*(?:II|2))?":
-    //   "Call of Duty Modern Warfare 2",
-    // "Call\\s*of\\s*Duty(?:\\s*[:\\s])?\\s*Modern\\s*Warfare(?:\\s*(?:III|3))?":
-    //   "Call of Duty Modern Warfare 3",
     "Crash\\s*Bandicoot\\s*4(?:\\s*[:\\s])?\\s*It's\\s*About\\s*Time":
       "Crash Bandicoot 4",
     "Crash\\s*Team\\s*Racing\\s*Nitro-Fueled(?:\\s*Nitros\\s*Oxide)?":
@@ -207,9 +204,64 @@ function cleanGameTitle(title) {
     "Call\\s*of\\s*Duty\\s*Modern\\s*Warfare\\s*(?:II|2)":
       "Call of Duty Modern Warfare II",
     "Call\\s*of\\s*Duty\\s*Modern\\s*Warfare": "Call of Duty Modern Warfare",
+    "Assassin’s\\s*Creed\\s*Odyssey\\s*GOLD": "Assassin's Creed Odyssey",
+    "Assassin’s\\s*Creed\\s*Mirage\\s*Master\\s*Assassin":
+      "Assassin's Creed Mirage",
+    "Call\\s*of\\s*Duty\\s*Vanguard-bundel": "Call of Duty Vanguard",
+    "Crash\\s*Bandicoot\\s*4\\s*It’s\\s*About\\s*Time": "Crash Bandicoot 4",
+    "DARK\\s*SOULS\\s*Ⅲ\\s*FIRE\\s*FADES": "DARK SOULS III",
+    "Demon\\s*Slayer\\s*-Kimetsu\\s*no\\s*Yaiba\\s*Hinokami\\s*Chronicles":
+      "Demon Slayer Kimetsu no Yaiba",
+    "Devil\\s*May\\s*Cry\\s*5\\s*\\+\\s*Vergil": "Devil May Cry 5",
+    "DiRT\\s*Rally\\s*2.0\\s*Germany": "DiRT Rally 2.0",
+    "EA\\s*SPORTS\\s*FC\\s*24\\s*and": "EA Sports FC 24",
+    "EA\\s*SPORTS\\s*FIFA\\s*18\\s*&\\s*NBA\\s*LIVE\\s*18": "FIFA 18",
+    "eFootball\\s*Pro\\s*Evolution\\s*Soccer\\s*2020": "eFootball PES 2020",
+    "Exps\\s*A\\s*MudRunner\\s*Game\\s*Year\\s*1": "Exps A MudRunner Game",
+    "Fallout\\s*4(?:\\s*G\\.O\\.T\\.Y\\.)?": "Fallout 4",
+    "Far\\s*Cry\\s*3": "Far Cry 3",
+    "FAR\\s*CRY\\s*6\\s*–?": "FAR CRY 6",
+    "Hogwarts(?:\\s*Version)?": "Hogwarts",
+    "KINGDOM\\s*HEARTS\\s*III|KINGDOM\\s*HEARTS\\s*Ⅲ": "KINGDOM HEARTS III",
+    "God\\s*of\\s*War\\s*III": "God of War III Remastered",
+    "GOD\\s*OF\\s*WARIII": "God of War III Remastered",
+    // "The\\s*Last\\s*of\\s*Us\\s*:\\s*Left\\s*Behind\\s*(?:\\(Standalone\\))?":
+    //   "The Last of Us",
+    "The\\s*Last\\s*of\\s*Us\\s*Parte\\s*II": "The Last of Us Part II",
+    "The\\s*Last\\s*of\\s*Us\\s*Parte\\s*I": "The Last of Us Part I",
+
+    "LEGO\\s*DC\\s*Super-Vilões": "LEGO DC Super-Villains",
+    "LEGO\\s*MARVEL's\\s*Avengers": "LEGO Marvel",
+    "LEGO\\s*Marvel’s\\s*Avengers": "LEGO Marvel",
+    "LEGO\\s*NINJAGO\\s*Movie\\s*Video\\s*Game": "LEGO NINJAGO Movie",
+    "Metal\\s*Gear\\s*Solid\\s*V\\s*Experience":
+      "LMETAL GEAR SOLID V DEFINITIVE EXPERIENCE",
+    // "Mortal\\s*Mortal\\s*11\\+\\s*Add-On": "Mortal Kombat 11",
+    // "Mortal\\s*Mortal\\s*11\\+\\s*Add-On": "Mortal Kombat 11",
+    // "Mortal\\s*Mortal\\s*11\\+\\s*Aftermath\\+\\s*Kombat-2": "Mortal Kombat 11",
+    // "Mortal\\s*Mortal\\s*11\\+\\s*Injustice 2 Leg": "Mortal Kombat 11",
+    "Mortal\\s*Kombat\\s*11(?:\\s*\\+\\s*(?:Add-On|Aftermath|Kombat-2|Injustice\\s*2\\s*Leg\\.))?":
+      "Mortal Kombat 11",
+    "NieR\\s*Automata\\s*Game\\s*of\\s*the\\s*YoRHa": "NieR Automata",
+    Prototype2: "Prototype 2",
+    "SnowRunner\\s*1-Year": "SnowRunner",
+    "SOULCALIBUR\\s*Ⅵ": "SOULCALIBUR VI",
+    "SpongeBob\\s*SquarePants\\s*Battle\\s*For\\s*Bikini\\s*Bottom\\s*Rehydrated":
+      "SpongeBob SquarePants",
+    "SpongeBob\\s*SquarePants\\s*Battle\\s*For\\s*Bikini\\s*Bottom":
+      "SpongeBob SquarePants",
+    "STEEP\\s*GOLD": "STEEP",
+    "TOM\\s*CLANCY'S\\s*DIVISION": "Tom Clancy’s Division",
+    "Tom\\s*Clancy's\\s*Rainbow\\s*Six(?:\\s*Siege)?":
+      "Tom Clancy's Rainbow Six",
+    "Uncharted\\s*4\\s*A\\s*Thief['’]s\\s*End": "Uncharted 4 A Thief's End",
+    "Watch\\s*Dogs\\s*2": "Watch Dogs 2",
+    WATCH_DOGS: "Watch Dogs",
+    "WWE\\s*2K24(?:\\s*40th\\s*Anniversary\\s*of\\s*WrestleMania)?": "WWE 2K24",
+    "EA\\s*SPORTS\\s*FC\\s*25(?:\\s*and.*)?": "EA SPORTS FC 25",
   };
 
-  console.log("before cleanTitle 1", cleanTitle);
+  console.log("before ===== ", cleanTitle);
 
   // Apply title mappings
   for (const [pattern, replacement] of Object.entries(titleMappings)) {
@@ -220,8 +272,6 @@ function cleanGameTitle(title) {
     }
   }
 
-  console.log("after cleanTitle 2", cleanTitle);
-
   cleanTitle = cleanTitle
     // حذف کاراکترهای اضافی و یکسان‌سازی فاصله‌ها
     .replace(/\s+/g, " ")
@@ -230,6 +280,8 @@ function cleanGameTitle(title) {
       /^-=\-=\-=\-=\-=\-=\-=\-=\-$|^=\-=\-=\-=\-=\-=\-=\-=$|^—\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-—$|^—————————$/,
       "$1"
     )
+    .replace(/\s*GOLD EDITION/, "")
+    .replace(/\s*Royal Edition/, "")
     .replace(/\s*NBA 75th Anniversary Edition/, "")
     .replace(/\s*Deluxe Recruit Edition/, "")
     .replace(/\s*Standard Recruit Edition/, "")
@@ -242,6 +294,7 @@ function cleanGameTitle(title) {
     .replace(/\s*Survival Ascended/, "")
     .replace(/\s*Rescue Mission/, "")
     .replace(/\s*Traveler Edition/, "")
+    .replace(/\s*GOLD Edition/, "")
     .replace(/\s*The Old Hunters Edition/, "")
     .replace(/\s*Zombies Chronicles Edition/, "")
     .replace(/\s*Triple Pack PS4 & PS5/, "")
@@ -406,14 +459,14 @@ function cleanGameTitle(title) {
     .replace(/^(.*?)\s+–\s+PS\d+\s+og\s+PS\d+$/, "$1")
     .replace(/^(.*?)\s+–\s+PS\d+\s+PS\d+$/, "$1")
     .replace(/^(.*?)\s+pour\s+PS\d+\s+et\s+PS\d+$/, "$1")
-    .replace(/Part/gi, "part")
-    .replace(/Parte/gi, "part")
-    .replace(/parte/gi, "part")
+    // .replace(/Part/gi, "part")
+    // .replace(/Parte/gi, "part")
+    // .replace(/parte/gi, "part")
     .replace(/\bOf\b/, "of")
     .replace(/\s*Cross-Gen-Bundle\s*/, " ")
     .replace(/\s*Multi-Generation Lite\s*/, " ")
     .replace(/^(.*?):\s*(.*)$/, "$1 $2")
-    .replace(/^(.*?)\s*: Remastered$/, "$1")
+    // .replace(/^(.*?)\s*: Remastered$/, "$1")
     .replace(/^(.*?)\s*: Competition$/, "$1")
     .replace(/^(.*?)\s*: Competizione$/, "$1")
     .replace(/^(.*?)\s*: Competizione$/, "$1")
@@ -450,7 +503,7 @@ function cleanGameTitle(title) {
     .replace(/\s*Remasterizado\s*/, " ")
     .replace(/\s*Reloaded\s*/, " ")
     .replace(/\s*PlayStation4\s*/, " ")
-    .replace(/\s*Remastered\s*/, " ")
+    // .replace(/\s*Remastered\s*/, " ")
     .replace(/\s*Digital\s*/, " ")
     .replace(/\s*Ultimate\s*/, " ")
     .replace(/\s*Ultimate pour\s*/, " ")
@@ -475,8 +528,8 @@ function cleanGameTitle(title) {
     .replace(/\bPS4 & PS5\b/, " ")
     .replace(/\bper\b/, " ")
     .replace(/\bElite\b/, " ")
-    .replace(/\bThe\b/, " ")
-    .replace(/\bTHE\b/, " ")
+    // .replace(/\bThe\b/, " ")
+    // .replace(/\bTHE\b/, " ")
     .replace(/\>>> PS5\b/, " ")
     .replace(/\bCOLLECTION\b/, " ")
     .replace(/\s*Definitive\s*/, " ")
@@ -543,11 +596,11 @@ function cleanGameTitle(title) {
         .trim()
     );
 
+  console.log("after ", cleanTitle);
+
   editions.forEach((editionPattern) => {
     cleanTitle = cleanTitle.replace(editionPattern, "");
   });
-
-  console.log("xxxxxxxxx => ", cleanTitle);
 
   cleanTitle = cleanTitle.replace(/\s*\\?-\s*(?=\s|$)/g, "").trim();
 
@@ -556,14 +609,11 @@ function cleanGameTitle(title) {
 
   for (const [pattern, replacement] of Object.entries(titleMappings)) {
     const regex = new RegExp(pattern, "i");
-    console.log("vvvv ", regex.test(cleanTitle));
     if (regex.test(cleanTitle)) {
       cleanTitle = replacement;
       break;
     }
   }
-
-  console.log("zzzz ", cleanTitle);
 
   return cleanTitle;
 }
