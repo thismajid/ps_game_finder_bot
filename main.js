@@ -509,6 +509,14 @@ function cleanGameTitle(title) {
   cleanTitle = cleanTitle.replace(/\s*\+\s*CTR Nitro-Fueled/, "");
   cleanTitle = cleanTitle.replace(/\s*\+\s*Nitros Oxide/, "");
 
+  for (const [pattern, replacement] of Object.entries(titleMappings)) {
+    const regex = new RegExp(pattern, "i");
+    if (regex.test(cleanTitle)) {
+      cleanTitle = replacement;
+      break;
+    }
+  }
+
   return cleanTitle;
 }
 
