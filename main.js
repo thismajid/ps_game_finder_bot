@@ -17,7 +17,7 @@ const INPUT_FILES = [
 ].filter(Boolean);
 
 // تنظیمات فازی
-const SIMILARITY_THRESHOLD = 0.75;
+const SIMILARITY_THRESHOLD = 0.99;
 const MAX_EDIT_DISTANCE = 5;
 const uniqueGames = new Set();
 
@@ -50,6 +50,34 @@ async function createTables() {
         post_id INTEGER REFERENCES posts(id),
         PRIMARY KEY (game_id, post_id)
       );
+
+      CREATE EXTENSION IF NOT EXISTS fuzzystrmatch;
+
+        CREATE OR REPLACE FUNCTION title_match_score(title1 text, title2 text) RETURNS float AS $$
+  DECLARE
+    words1 text[];
+    words2 text[];
+    common_count integer := 0;
+    diff_count integer := 0;
+  BEGIN
+    -- تبدیل عناوین به آرایه کلمات
+    SELECT string_to_array(lower(title1), ' ') INTO words1;
+    SELECT string_to_array(lower(title2), ' ') INTO words2;
+    
+    -- شمارش کلمات مشترک
+    SELECT COUNT(*) INTO common_count 
+    FROM (
+      SELECT UNNEST(words1) INTERSECT SELECT UNNEST(words2)
+    ) as common;
+    
+    -- محاسبه تفاوت‌ها
+    diff_count := (array_length(words1, 1) + array_length(words2, 1) - 2 * common_count);
+    
+    -- امتیاز نهایی: نسبت کلمات مشترک منهای جریمه برای تفاوت‌ها
+    RETURN (common_count::float / GREATEST(array_length(words1, 1), array_length(words2, 1)))
+           - (diff_count::float / GREATEST(array_length(words1, 1), array_length(words2, 1)) * 0.5);
+  END;
+  $$ LANGUAGE plpgsql;
     `);
 
     console.log("Tables created successfully");
@@ -148,8 +176,12 @@ function cleanGameTitle(title) {
     "Bloodborne(?:\\s*(?:Game of the Year|The Old Hunters))?": "Bloodborne",
     "Call\\s*of\\s*Duty(?:\\s*[:\\s])?\\s*Black\\s*Ops\\s*(?:III|3)(?:\\s*Zombies\\s*Chronicles)?":
       "Call of Duty Black Ops III",
-    "Call\\s*of\\s*Duty(?:\\s*[:\\s])?\\s*Modern\\s*Warfare(?:\\s*(?:II|2|III|3))?":
-      "Call of Duty Modern Warfare",
+    // "Call\\s*of\\s*Duty(?:\\s*[:\\s])?\\s*Modern\\s*Warfare":
+    //   "Call of Duty Modern Warfare",
+    // "Call\\s*of\\s*Duty(?:\\s*[:\\s])?\\s*Modern\\s*Warfare(?:\\s*(?:II|2))?":
+    //   "Call of Duty Modern Warfare 2",
+    // "Call\\s*of\\s*Duty(?:\\s*[:\\s])?\\s*Modern\\s*Warfare(?:\\s*(?:III|3))?":
+    //   "Call of Duty Modern Warfare 3",
     "Crash\\s*Bandicoot\\s*4(?:\\s*[:\\s])?\\s*It's\\s*About\\s*Time":
       "Crash Bandicoot 4",
     "Crash\\s*Team\\s*Racing\\s*Nitro-Fueled(?:\\s*Nitros\\s*Oxide)?":
@@ -170,7 +202,14 @@ function cleanGameTitle(title) {
     "EA\\s*SPORTS\\s*FIFA\\s*23": "FIFA 23",
     "EA\\s*SPORTS\\s*FIFA\\s*20": "FIFA 20",
     "EA\\s*SPORTS\\s*FIFA\\s*16": "FIFA 16",
+    "Call\\s*of\\s*Duty\\s*Modern\\s*Warfare\\s*(?:III|3)":
+      "Call of Duty Modern Warfare III",
+    "Call\\s*of\\s*Duty\\s*Modern\\s*Warfare\\s*(?:II|2)":
+      "Call of Duty Modern Warfare II",
+    "Call\\s*of\\s*Duty\\s*Modern\\s*Warfare": "Call of Duty Modern Warfare",
   };
+
+  console.log("before cleanTitle 1", cleanTitle);
 
   // Apply title mappings
   for (const [pattern, replacement] of Object.entries(titleMappings)) {
@@ -180,6 +219,8 @@ function cleanGameTitle(title) {
       break;
     }
   }
+
+  console.log("after cleanTitle 2", cleanTitle);
 
   cleanTitle = cleanTitle
     // حذف کاراکترهای اضافی و یکسان‌سازی فاصله‌ها
@@ -506,6 +547,8 @@ function cleanGameTitle(title) {
     cleanTitle = cleanTitle.replace(editionPattern, "");
   });
 
+  console.log("xxxxxxxxx => ", cleanTitle);
+
   cleanTitle = cleanTitle.replace(/\s*\\?-\s*(?=\s|$)/g, "").trim();
 
   cleanTitle = cleanTitle.replace(/\s*\+\s*CTR Nitro-Fueled/, "");
@@ -513,11 +556,14 @@ function cleanGameTitle(title) {
 
   for (const [pattern, replacement] of Object.entries(titleMappings)) {
     const regex = new RegExp(pattern, "i");
+    console.log("vvvv ", regex.test(cleanTitle));
     if (regex.test(cleanTitle)) {
       cleanTitle = replacement;
       break;
     }
   }
+
+  console.log("zzzz ", cleanTitle);
 
   return cleanTitle;
 }
@@ -534,24 +580,63 @@ async function findSimilarTitle(cleanTitle) {
       return exactMatch.rows[0];
     }
 
-    // سپس جستجوی فازی
-    const result = await client.query(
-      `SELECT id, clean_title, 
-              SIMILARITY(LOWER(clean_title), LOWER($1)) as similarity_score
+    // بازیابی چند نتیجه برتر برای پردازش در JavaScript
+    const results = await client.query(
+      `SELECT id, clean_title, SIMILARITY(LOWER(clean_title), LOWER($1)) as similarity
        FROM games 
        WHERE SIMILARITY(LOWER(clean_title), LOWER($1)) >= $2
-       ORDER BY similarity_score DESC 
-       LIMIT 1`,
+       ORDER BY similarity DESC 
+       LIMIT 10`,
       [cleanTitle, SIMILARITY_THRESHOLD]
     );
 
-    if (result.rows.length > 0) {
-      const candidate = result.rows[0];
-      const distance = levenshtein.get(candidate.clean_title, cleanTitle);
-      if (distance <= MAX_EDIT_DISTANCE) {
-        return candidate;
-      }
+    if (results.rows.length === 0) {
+      return null;
     }
+
+    // پردازش نتایج در JavaScript
+    const processedResults = results.rows.map((game) => {
+      const inputWords = cleanTitle.toLowerCase().split(/\s+/);
+      const titleWords = game.clean_title.toLowerCase().split(/\s+/);
+
+      // بررسی تطابق دقیق
+      if (game.clean_title.toLowerCase() === cleanTitle.toLowerCase()) {
+        return { ...game, final_score: 2.0 };
+      }
+
+      // محاسبه تفاوت کلمات
+      const uniqueInInput = inputWords.filter((w) => !titleWords.includes(w));
+      const uniqueInTitle = titleWords.filter((w) => !inputWords.includes(w));
+      const differenceCount = uniqueInInput.length + uniqueInTitle.length;
+
+      // امتیازدهی نهایی با در نظر گرفتن تفاوت‌ها
+      const final_score = game.similarity - differenceCount * 0.1;
+
+      return { ...game, final_score };
+    });
+
+    // مرتب‌سازی بر اساس امتیاز نهایی
+    processedResults.sort((a, b) => b.final_score - a.final_score);
+    const bestMatch = processedResults[0];
+
+    // اعمال فیلتر فاصله ویرایشی اگر کتابخانه levenshtein موجود است
+    if (typeof levenshtein !== "undefined") {
+      const distance = levenshtein.get(
+        bestMatch.clean_title.toLowerCase(),
+        cleanTitle.toLowerCase()
+      );
+      if (distance <= MAX_EDIT_DISTANCE) {
+        return bestMatch;
+      }
+      return null;
+    }
+
+    // اگر کتابخانه levenshtein موجود نیست، فقط از امتیاز نهایی استفاده کنید
+    if (bestMatch.final_score >= 0.6) {
+      // می‌توانید این آستانه را تنظیم کنید
+      return bestMatch;
+    }
+
     return null;
   } catch (error) {
     console.error("Error finding similar title:", error);
