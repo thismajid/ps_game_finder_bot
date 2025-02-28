@@ -166,6 +166,8 @@ function cleanGameTitle(title) {
     "Ghost\\s*of\\s*Tsushima\\s*Legends": "Ghost of Tsushima",
     "Goat\\s*Simulator\\s*GOATY": "Goat Simulator",
     "eFootball\\s*PES\\s*2021\\s*SEASON\\s*UPDATE": "PES 2021",
+    "EA\\s*SPORTS\\s*FIFA\\s*17": "FIFA 17",
+    "EA\\s*SPORTS\\s*FIFA\\s*23": "FIFA 23",
   };
 
   // Apply title mappings
