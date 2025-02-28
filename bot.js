@@ -280,7 +280,7 @@ bot.command("tutorial", async (ctx) => {
   }
 
   // آدرس ویدیو آموزشی را اینجا قرار دهید
-  const videoFileId = "YOUR_VIDEO_FILE_ID"; // این را با شناسه فایل ویدیوی خود جایگزین کنید
+  const videoFileId = "BAACAgQAAxkBAAIG6mfB9zpAS3Dme5COF9LrtdTfSbIIAAIuFQAC0ZURUjlh8DuJeyNWNgQ"; // این را با شناسه فایل ویدیوی خود جایگزین کنید
 
   try {
     await ctx.reply("🎥 ویدیوی آموزش استفاده از ربات:");
