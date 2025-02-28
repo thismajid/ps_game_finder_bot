@@ -753,7 +753,7 @@ bot.on("message:text", async (ctx) => {
     return;
   }
 
-  searchQuery = userInput.replace(/\s+/g, "[\\s-]"); // فاصله یا خط تیره
+  searchQuery = searchQuery.replace(/\s+/g, "[\\s-]"); // فاصله یا خط تیره
   // جستجوی بازی در دیتابیس
   const result = await pool.query(
     "SELECT id, clean_title FROM games WHERE clean_title ~* $1 LIMIT 20",
