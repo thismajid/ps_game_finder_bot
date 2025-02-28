@@ -170,17 +170,12 @@ function cleanGameTitle(title) {
 
   // Apply title mappings
   for (const [pattern, replacement] of Object.entries(titleMappings)) {
-    console.log("b ", cleanTitle);
     const regex = new RegExp(pattern, "i");
     if (regex.test(cleanTitle)) {
-      console.log("c   ", cleanTitle);
       cleanTitle = replacement;
-      console.log("r   ", replacement);
       break;
     }
   }
-
-  console.log("zzzzzzzzzz ", cleanTitle);
 
   cleanTitle = cleanTitle
     // حذف کاراکترهای اضافی و یکسان‌سازی فاصله‌ها
@@ -503,8 +498,6 @@ function cleanGameTitle(title) {
         .trim()
     );
 
-  console.log("xxxxxxx ", cleanTitle);
-
   editions.forEach((editionPattern) => {
     cleanTitle = cleanTitle.replace(editionPattern, "");
   });
@@ -513,8 +506,6 @@ function cleanGameTitle(title) {
 
   cleanTitle = cleanTitle.replace(/\s*\+\s*CTR Nitro-Fueled/, "");
   cleanTitle = cleanTitle.replace(/\s*\+\s*Nitros Oxide/, "");
-
-  console.log("after cleaning        ", cleanTitle);
 
   return cleanTitle;
 }
