@@ -42,6 +42,8 @@ async function createTables() {
         region TEXT,
         price_ps4 INTEGER,
         price_ps5 INTEGER,
+        is_ps4_sold BOOLEAN DEFAULT FALSE,
+        is_ps5_sold BOOLEAN DEFAULT FALSE,
         source_file TEXT,
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
       );
@@ -757,7 +759,7 @@ async function processPost(content, sourceFile) {
     if (isAds) return;
     const postId = parseInt(idMatch[1]);
 
-    // // پردازش محتوا
+    // پردازش محتوا
     const cleanContent = content
       .replace(/id:\s*\d+\s*\n/i, "")
       .replace(/[=*]{4,}/g, "")
@@ -765,40 +767,65 @@ async function processPost(content, sourceFile) {
 
     // استخراج اطلاعات پست
     const regionMatch = content.match(/🌐region\s*(\d+)/i);
-    const pricePS4Match =
-      content.match(/💰price ps4\s*:\s*(\d+)/i) ||
-      content.match(/💸 Price PS4\s*:\s*(\d+)/i) ||
-      content.match(/♻️Price\s*:\s*(\d+)/i) ||
-      content.match(/💷 Price\s*:\s*(\d+)/i) ||
-      content.match(/PS4:\s*:\s*(\d+)/i) ||
-      content.match(/♻️Price\s*:\s*(\d+)/i);
-    const pricePS5Match =
-      content.match(/💰price ps5\s*:\s*(\d+)/i) ||
-      content.match(/💸 Price PS5\s*:\s*(\d+)/i) ||
-      content.match(/♻️Price\s*:\s*(\d+)/i) ||
-      content.match(/💷 Price\s*:\s*(\d+)/i) ||
-      content.match(/PS5:\s*:\s*(\d+)/i);
 
-    // درج پست در دیتابیس
+    // بررسی وضعیت PS4
+    const pricePS4Match =
+      content.match(/💰price ps4\s*:\s*(\S+)/i) ||
+      content.match(/💸 Price PS4\s*:\s*(\S+)/i) ||
+      content.match(/♻️Price\s*:\s*(\S+)/i) ||
+      content.match(/💷 Price\s*:\s*(\S+)/i) ||
+      content.match(/PS4:\s*:\s*(\S+)/i) ||
+      content.match(/^💰\s*Price\s*PS5$/i);
+
+    // بررسی وضعیت PS5
+    const pricePS5Match =
+      content.match(/💰price ps5\s*:\s*(\S+)/i) ||
+      content.match(/💸 Price PS5\s*:\s*(\S+)/i) ||
+      content.match(/♻️Price\s*:\s*(\S+)/i) ||
+      content.match(/💷 Price\s*:\s*(\S+)/i) ||
+      content.match(/PS5:\s*:\s*(\S+)/i) ||
+      content.match(/^💰\s*Price\s*PS4$/i);
+
+    // تعیین وضعیت فروش
+    const isPS4Sold =
+      pricePS4Match && pricePS4Match[1].toLowerCase().includes("sold");
+    const isPS5Sold =
+      pricePS5Match && pricePS5Match[1].toLowerCase().includes("sold");
+
+    // تبدیل قیمت‌ها به عدد (فقط اگر Sold نباشند)
+    const pricePS4 =
+      !isPS4Sold && pricePS4Match
+        ? parseInt(pricePS4Match[1].replace(/\D/g, "")) || null
+        : null;
+    const pricePS5 =
+      !isPS5Sold && pricePS5Match
+        ? parseInt(pricePS5Match[1].replace(/\D/g, "")) || null
+        : null;
+
+    // درج پست در دیتابیس با فیلدهای جدید
     await client.query(
-      `INSERT INTO posts (id, content, region, price_ps4, price_ps5, source_file) 
-       VALUES ($1, $2, $3, $4, $5, $6)
+      `INSERT INTO posts (id, content, region, price_ps4, price_ps5, is_ps4_sold, is_ps5_sold, source_file) 
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
        ON CONFLICT (id) DO UPDATE SET
        content = EXCLUDED.content,
        region = EXCLUDED.region,
        price_ps4 = EXCLUDED.price_ps4,
-       price_ps5 = EXCLUDED.price_ps5`,
+       price_ps5 = EXCLUDED.price_ps5,
+       is_ps4_sold = EXCLUDED.is_ps4_sold,
+       is_ps5_sold = EXCLUDED.is_ps5_sold`,
       [
         postId,
         cleanContent,
         regionMatch?.[1] || null,
-        pricePS4Match?.[1] || null,
-        pricePS5Match?.[1] || null,
+        pricePS4,
+        pricePS5,
+        isPS4Sold,
+        isPS5Sold,
         sourceFile,
       ]
     );
 
-    // پردازش عناوین بازی‌ها
+    // پردازش عناوین بازی‌ها (بدون تغییر)
     const gameLines = cleanContent
       .split("\n")
       .map((line) => line.trim())
@@ -845,9 +872,6 @@ async function processFile(filePath) {
 }
 
 async function main() {
-  const startTime = new Date();
-  console.log(`[${startTime.toISOString()}] Starting database update process`);
-
   try {
     await client.connect();
     console.log("Connected to database");
@@ -860,21 +884,13 @@ async function main() {
       await processFile(filePath);
     }
 
-    const endTime = new Date();
-    const duration = (endTime - startTime) / 1000;
-    console.log(`\nProcessing completed in ${duration.toFixed(2)} seconds`);
+    console.log("\nProcessing completed");
     console.log(`Total unique games: ${uniqueGames.size}`);
   } catch (error) {
     console.error("Main error:", error);
   } finally {
-    if (client) {
-      try {
-        await client.end();
-        console.log("Database connection closed");
-      } catch (err) {
-        console.error("Error closing database connection:", err);
-      }
-    }
+    await client.end();
+    console.log("Database connection closed");
   }
 }
 
