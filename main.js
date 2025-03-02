@@ -267,10 +267,16 @@ function cleanGameTitle(title) {
     "Mortal\\s*Kombat\\s*X\\s*\\+?\\s*XL": "Mortal Kombat X",
     TEKKEN7: "TEKKEN 7",
     "Tom\\s*Clancy’s\\s*Rainbow\\s*Six\\s*Extraction":
-      "Tom Clancy's Rainbow Six",
+    "Tom Clancy's Rainbow Six",
     "Tom\\s*Clancy’s\\s*Rainbow\\s*Six\\s*Siege": "Tom Clancy's Rainbow Six",
     "Uncharted\\s*The\\s*Nathan\\s*Drake's": "Uncharted The Nathan Drake",
     "Call\\s*of\\s*Duty\\s*WWIIچ": "Call of Duty WWII",
+    "Grand\\s*Theft\\s*Auto\\s*San\\s*Andreas\\s*–\\s*The": "Grand Theft Auto: San Andreas",
+    "Grand\\s*Theft\\s*Auto\\s*III\\s*–\\s*The": "Grand Theft Auto III",
+    "Grand\\s*Theft\\s*Auto\\s*The": "Grand Theft Auto",
+    "Grand\\s*Theft\\s*Auto\\s*Vice\\s*City\\s*–\\s*The": "Grand Theft Auto Vice City",
+    "Grand\\s*Theft\\s*Auto\\s*The\\s*–\\s*The": "Grand Theft Auto Vice",
+    "Grand\\s*Theft\\s*Auto\\s*3": "Grand Theft Auto III",
   };
 
   // Apply title mappings
