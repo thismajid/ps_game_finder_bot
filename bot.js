@@ -731,7 +731,7 @@ bot.on("message:text", async (ctx) => {
   searchQuery = searchQuery.replace(/\s+/g, "[\\s-]").replace(/[™®]/g, "").replace(/:\s*/g, "");
   // جستجوی بازی در دیتابیس
   const result = await pool.query(
-    "SELECT id, clean_title FROM games WHERE clean_title ~* $1 LIMIT 20",
+    "SELECT id, clean_title FROM games WHERE SIMILARITY(clean_title, $1) > 0.85 LIMIT 20",
     [`.*${searchQuery}.*`]
   );
 
