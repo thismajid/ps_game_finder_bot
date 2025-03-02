@@ -730,18 +730,24 @@ bot.on("message:text", async (ctx) => {
 
   searchQuery = searchQuery.replace(/\s+/g, "[\\s-]").replace(/[™®]/g, "").replace(/:\s*/g, "");
   // جستجوی بازی در دیتابیس
-  const result = await pool.query(
-    "SELECT id, clean_title FROM games WHERE SIMILARITY(clean_title, $1) > 0.8 LIMIT 20",
+  let result = await pool.query(
+    "SELECT id, clean_title FROM games WHERE clean_title ~* $1 LIMIT 20",
     [`.*${searchQuery}.*`]
   );
 
   if (result.rows.length === 0) {
-    return ctx.reply("❌ هیچ بازی‌ای با این نام پیدا نشد.", {
-      reply_markup: new InlineKeyboard().text(
-        "🔙 بازگشت به منو",
-        "back_to_menu"
-      ),
-    });
+    result = await pool.query(
+    "SELECT id, clean_title FROM games WHERE SIMILARITY(clean_title, $1) > 0.8 LIMIT 20",
+    [`.*${searchQuery}.*`]
+    );
+    if (result.rows.length === 0) {
+      return ctx.reply("❌ هیچ بازی‌ای با این نام پیدا نشد.", {
+        reply_markup: new InlineKeyboard().text(
+          "🔙 بازگشت به منو",
+          "back_to_menu"
+        ),
+      });
+    }
   }
 
   const keyboard = new InlineKeyboard();
