@@ -278,7 +278,8 @@ function cleanGameTitle (title) {
     'Grand\\s*Theft\\s*Auto\\s*The\\s*–\\s*The': 'Grand Theft Auto Vice',
     'Grand\\s*Theft\\s*Auto\\s*3': 'Grand Theft Auto III',
     'Nioh\\s*The': 'Nioh',
-    'Rise\\s*of\\s*the\\s*Tomb\\s*Raider': 'Rise of the Tomb Raider: 20 Year Celebration'
+    'Rise\\s*of\\s*the\\s*Tomb\\s*Raider': 'Rise of the Tomb Raider: 20 Year Celebration',
+    'Ratchet\\s*&\\s*Clank\\s*3': 'Ratchet & Clank',
   }
 
   // Apply title mappings
