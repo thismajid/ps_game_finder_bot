@@ -45,7 +45,8 @@ async function createTables() {
         is_ps4_sold BOOLEAN DEFAULT FALSE,
         is_ps5_sold BOOLEAN DEFAULT FALSE,
         source_file TEXT,
-        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
       );
 
       CREATE TABLE IF NOT EXISTS games_posts (
@@ -759,11 +760,24 @@ async function processPost(content, sourceFile) {
     if (isAds) return;
     const postId = parseInt(idMatch[1]);
 
+    // بررسی آیا پست قبلاً وجود داشته است
+    const existingPost = await client.query(
+      "SELECT content FROM posts WHERE id = $1",
+      [postId]
+    );
+    const postExists = existingPost.rows.length > 0;
+
     // پردازش محتوا
     const cleanContent = content
       .replace(/id:\s*\d+\s*\n/i, "")
       .replace(/[=*]{4,}/g, "")
       .trim();
+
+    // اگر پست وجود دارد و محتوا تغییر نکرده است، پردازش را متوقف کنید
+    if (postExists && existingPost.rows[0].content === cleanContent) {
+      console.log(`Post ${postId} has not changed, skipping update.`);
+      return;
+    }
 
     // استخراج اطلاعات پست
     const regionMatch = content.match(/🌐region\s*(\d+)/i);
@@ -802,17 +816,19 @@ async function processPost(content, sourceFile) {
         ? parseInt(pricePS5Match[1].replace(/\D/g, "")) || null
         : null;
 
-    // درج پست در دیتابیس با فیلدهای جدید
+    // درج یا بروزرسانی پست در دیتابیس
+    // updated_at به صورت خودکار توسط تریگر بروزرسانی می‌شود
     await client.query(
-      `INSERT INTO posts (id, content, region, price_ps4, price_ps5, is_ps4_sold, is_ps5_sold, source_file) 
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+      `INSERT INTO posts (id, content, region, price_ps4, price_ps5, is_ps4_sold, is_ps5_sold, source_file, created_at) 
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, CURRENT_TIMESTAMP)
        ON CONFLICT (id) DO UPDATE SET
        content = EXCLUDED.content,
        region = EXCLUDED.region,
        price_ps4 = EXCLUDED.price_ps4,
        price_ps5 = EXCLUDED.price_ps5,
        is_ps4_sold = EXCLUDED.is_ps4_sold,
-       is_ps5_sold = EXCLUDED.is_ps5_sold`,
+       is_ps5_sold = EXCLUDED.is_ps5_sold,
+       source_file = EXCLUDED.source_file`,
       [
         postId,
         cleanContent,
@@ -825,12 +841,20 @@ async function processPost(content, sourceFile) {
       ]
     );
 
-    // پردازش عناوین بازی‌ها (بدون تغییر)
+    // پردازش عناوین بازی‌ها
     const gameLines = cleanContent
       .split("\n")
       .map((line) => line.trim())
       .filter((line) => line && !line.match(/id:|region|price/i));
 
+    // حذف ارتباطات قبلی بین بازی‌ها و پست (در صورت بروزرسانی)
+    if (postExists) {
+      await client.query(`DELETE FROM games_posts WHERE post_id = $1`, [
+        postId,
+      ]);
+    }
+
+    // ایجاد ارتباطات جدید
     for (const gameLine of gameLines) {
       const gameId = await processGameTitle(gameLine, postId);
       if (gameId) {
@@ -843,7 +867,11 @@ async function processPost(content, sourceFile) {
       }
     }
 
-    console.log(`Processed post ${postId} from ${sourceFile}`);
+    if (postExists) {
+      console.log(`Updated post ${postId} from ${sourceFile}`);
+    } else {
+      console.log(`Added new post ${postId} from ${sourceFile}`);
+    }
   } catch (error) {
     console.error("Error processing post:", error);
   }
