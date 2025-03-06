@@ -136,6 +136,8 @@ async function createTables() {
       );
     `);
 
+    await pool.query(`ALTER TABLE user_games ADD COLUMN deleted_at TIMESTAMP DEFAULT NULL;`);
+
     console.log("✅ جداول ایجاد یا بررسی شدند.");
   } catch (error) {
     console.error("❌ خطا در ایجاد جداول:", error);
@@ -166,7 +168,8 @@ async function checkMembership(userId) {
 async function hasGames(userId) {
   const gamesCount = await pool.query(
     `SELECT COUNT(*) FROM user_games 
-     WHERE user_id = (SELECT id FROM users WHERE telegram_id = $1)`,
+     WHERE user_id = (SELECT id FROM users WHERE telegram_id = $1) 
+     AND deleted_at IS NULL`,
     [userId]
   );
   return gamesCount.rows[0].count > 0;
@@ -453,12 +456,15 @@ bot.callbackQuery(/^console:(ps4|ps5)$/, async (ctx) => {
 
     // جستجوی پست‌های مرتبط با بازی‌ها و کنسول انتخابی
     const postsResult = await pool.query(
-      `SELECT p.content 
-       FROM games_posts 
-       JOIN posts p ON p.id = games_posts.post_id 
-       WHERE game_id = ANY($1) 
-       AND ${priceColumn} IS NOT NULL 
-       ORDER BY created_at DESC 
+      `SELECT id, content
+       FROM (
+         SELECT DISTINCT p.id, p.content
+         FROM games_posts 
+         JOIN posts p ON p.id = games_posts.post_id 
+         WHERE game_id = ANY($1) 
+         AND ${priceColumn} IS NOT NULL
+       ) AS distinct_posts
+       ORDER BY RANDOM()
        LIMIT 50`,
       [gameIds] // ارسال آرایه به عنوان پارامتر
     );
@@ -478,11 +484,11 @@ bot.callbackQuery(/^console:(ps4|ps5)$/, async (ctx) => {
 
     // 🛑 حذف لیست بازی‌های کاربر از دیتابیس
     await pool.query(
-      `DELETE FROM user_games 
-      WHERE user_id = (SELECT id FROM users WHERE telegram_id = $1)`,
+      `UPDATE user_games 
+       SET deleted_at = CURRENT_TIMESTAMP 
+       WHERE user_id = (SELECT id FROM users WHERE telegram_id = $1)`,
       [userId]
     );
-
     // بروزرسانی منوی دکمه‌ای
     await updateBotCommands(userId);
 
@@ -511,8 +517,11 @@ bot.callbackQuery(/^remove_game:(\d+)$/, async (ctx) => {
   const gameId = ctx.match[1];
   const userId = ctx.from.id;
 
+  // به‌روزرسانی ستون deleted_at به زمان فعلی
   await pool.query(
-    "DELETE FROM user_games WHERE user_id = (SELECT id FROM users WHERE telegram_id = $1) AND game_id = $2",
+    `UPDATE user_games 
+     SET deleted_at = CURRENT_TIMESTAMP 
+     WHERE user_id = (SELECT id FROM users WHERE telegram_id = $1) AND game_id = $2`,
     [userId, gameId]
   );
 
@@ -526,7 +535,8 @@ bot.callbackQuery(/^remove_game:(\d+)$/, async (ctx) => {
     `SELECT games.clean_title, games.id 
      FROM user_games 
      JOIN games ON user_games.game_id = games.id 
-     WHERE user_games.user_id = (SELECT id FROM users WHERE telegram_id = $1)`,
+     WHERE user_games.user_id = (SELECT id FROM users WHERE telegram_id = $1) 
+     AND user_games.deleted_at IS NULL`,
     [userId]
   );
 
@@ -711,7 +721,8 @@ bot.on("message:text", async (ctx) => {
   // بررسی تعداد بازی‌های انتخاب شده
   const gamesCount = await pool.query(
     `SELECT COUNT(*) FROM user_games 
-     WHERE user_id = (SELECT id FROM users WHERE telegram_id = $1)`,
+     WHERE user_id = (SELECT id FROM users WHERE telegram_id = $1)
+     AND deleted_at IS NULL`,
     [userId]
   );
 
