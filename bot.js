@@ -136,7 +136,9 @@ async function createTables() {
       );
     `);
 
-    await pool.query(`ALTER TABLE user_games ADD COLUMN deleted_at TIMESTAMP DEFAULT NULL;`);
+    await pool.query(
+      `ALTER TABLE user_games ADD COLUMN deleted_at TIMESTAMP DEFAULT NULL;`
+    );
 
     console.log("✅ جداول ایجاد یا بررسی شدند.");
   } catch (error) {
@@ -355,7 +357,8 @@ bot.command("my_games", async (ctx) => {
     `SELECT games.clean_title, games.id 
      FROM user_games 
      JOIN games ON user_games.game_id = games.id 
-     WHERE user_games.user_id = (SELECT id FROM users WHERE telegram_id = $1)`,
+     WHERE user_games.user_id = (SELECT id FROM users WHERE telegram_id = $1)
+     AND user_games.deleted_at IS NULL`,
     [userId]
   );
 
@@ -739,7 +742,10 @@ bot.on("message:text", async (ctx) => {
     return;
   }
 
-  searchQuery = searchQuery.replace(/\s+/g, "[\\s-]").replace(/[™®]/g, "").replace(/:\s*/g, "");
+  searchQuery = searchQuery
+    .replace(/\s+/g, "[\\s-]")
+    .replace(/[™®]/g, "")
+    .replace(/:\s*/g, "");
   // جستجوی بازی در دیتابیس
   let result = await pool.query(
     "SELECT id, clean_title FROM games WHERE clean_title ~* $1 LIMIT 20",
@@ -748,8 +754,8 @@ bot.on("message:text", async (ctx) => {
 
   if (result.rows.length === 0) {
     result = await pool.query(
-    "SELECT id, clean_title FROM games WHERE SIMILARITY(clean_title, $1) > 0.8 LIMIT 20",
-    [`.*${searchQuery}.*`]
+      "SELECT id, clean_title FROM games WHERE SIMILARITY(clean_title, $1) > 0.8 LIMIT 20",
+      [`.*${searchQuery}.*`]
     );
     if (result.rows.length === 0) {
       return ctx.reply("❌ هیچ بازی‌ای با این نام پیدا نشد.", {
