@@ -48,7 +48,8 @@ async function updateBotCommands(userId) {
     // بررسی تعداد بازی‌های انتخاب شده
     const gamesCount = await pool.query(
       `SELECT COUNT(*) FROM user_games 
-       WHERE user_id = (SELECT id FROM users WHERE telegram_id = $1)`,
+       WHERE user_id = (SELECT id FROM users WHERE telegram_id = $1)
+       AND user_games.deleted_at IS NULL`,
       [userId]
     );
 
@@ -432,7 +433,8 @@ bot.callbackQuery(/^console:(ps4|ps5)$/, async (ctx) => {
       `SELECT games.id 
        FROM user_games 
        JOIN games ON user_games.game_id = games.id 
-       WHERE user_games.user_id = (SELECT id FROM users WHERE telegram_id = $1)`,
+       WHERE user_games.user_id = (SELECT id FROM users WHERE telegram_id = $1)
+       AND user_games.deleted_at IS NULL`,
       [userId]
     );
 
@@ -580,7 +582,8 @@ bot.callbackQuery("my_games_list", async (ctx) => {
     `SELECT games.clean_title, games.id 
      FROM user_games 
      JOIN games ON user_games.game_id = games.id 
-     WHERE user_games.user_id = (SELECT id FROM users WHERE telegram_id = $1)`,
+     WHERE user_games.user_id = (SELECT id FROM users WHERE telegram_id = $1)
+     AND user_games.deleted_at IS NULL`,
     [userId]
   );
 
@@ -867,7 +870,8 @@ bot.callbackQuery("option_2", async (ctx) => {
     `SELECT games.clean_title, games.id 
      FROM user_games 
      JOIN games ON user_games.game_id = games.id 
-     WHERE user_games.user_id = (SELECT id FROM users WHERE telegram_id = $1)`,
+     WHERE user_games.user_id = (SELECT id FROM users WHERE telegram_id = $1)
+     AND user_games.deleted_at IS NULL`,
     [userId]
   );
 
