@@ -797,7 +797,7 @@ bot.callbackQuery(/^select_game:(\d+)$/, async (ctx) => {
 
   // چک کردن تکراری نبودن بازی
   const existingGame = await pool.query(
-    "SELECT 1 FROM user_games WHERE user_id = $1 AND game_id = $2",
+    "SELECT 1 FROM user_games WHERE user_id = $1 AND game_id = $2 AND user_games.deleted_at IS NULL",
     [internalId, selectedGameId]
   );
 
