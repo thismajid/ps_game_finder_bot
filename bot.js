@@ -42,6 +42,19 @@ const requiredChannels = [
   { id: "-1001066763571", invite_link: "https://t.me/CA_Storre" },
 ];
 
+async function safeAnswerCallback(ctx, options = {}) {
+  try {
+    await ctx.answerCallbackQuery(options);
+  } catch (error) {
+    if (error.description.includes("query is too old") || 
+        error.description.includes("query ID is invalid")) {
+      console.log("Callback query expired or invalid - ignoring");
+    } else {
+      console.error("Error answering callback query:", error);
+    }
+  }
+}
+
 // تابع بروزرسانی منوی دکمه‌ای تلگرام بر اساس وضعیت کاربر
 async function updateBotCommands(userId) {
   try {
@@ -323,10 +336,7 @@ bot.callbackQuery("check_membership", async (ctx) => {
 
   if (notJoinedChannels.length === 0) {
     // اگر در همه کانال‌ها عضو شده باشد
-    await ctx.answerCallbackQuery({
-      text: "✅ عضویت شما تایید شد!",
-      show_alert: true,
-    });
+    await safeAnswerCallback(ctx, { text: "✅ عضویت شما تایید شد!", show_alert: true });
     await ctx.reply(`سلام ${ctx.from.first_name}! 👋 خوش اومدی.`);
 
     // بروزرسانی منوی دکمه‌ای
@@ -335,10 +345,8 @@ bot.callbackQuery("check_membership", async (ctx) => {
     await showFullMenu(ctx);
   } else {
     // اگر هنوز در همه کانال‌ها عضو نشده باشد
-    await ctx.answerCallbackQuery({
-      text: "❌ هنوز در همه کانال‌ها عضو نشده‌اید!",
-      show_alert: true,
-    });
+    await safeAnswerCallback(ctx, {  text: "❌ هنوز در همه کانال‌ها عضو نشده‌اید!", show_alert: true });
+
     await showJoinMessage(ctx, notJoinedChannels);
   }
 });
@@ -531,7 +539,8 @@ bot.callbackQuery(/^remove_game:(\d+)$/, async (ctx) => {
     [userId, gameId]
   );
 
-  await ctx.answerCallbackQuery({ text: "✅ بازی از لیست شما حذف شد." });
+  await safeAnswerCallback(ctx, { text:"✅ بازی از لیست شما حذف شد." });
+
 
   // بروزرسانی منوی دکمه‌ای
   await updateBotCommands(userId);
@@ -571,7 +580,8 @@ bot.callbackQuery(/^remove_game:(\d+)$/, async (ctx) => {
 // اضافه کردن هندلر برای دکمه جستجوی بازی
 bot.callbackQuery("search_games", async (ctx) => {
   await ctx.reply("🚩 لطفاً نام بازی مورد نظر خود را وارد کنید:");
-  await ctx.answerCallbackQuery();
+  await safeAnswerCallback(ctx);
+
 });
 
 // اضافه کردن هندلر برای دکمه لیست بازی‌ها
@@ -609,7 +619,7 @@ bot.callbackQuery("my_games_list", async (ctx) => {
     );
   }
 
-  await ctx.answerCallbackQuery();
+  await safeAnswerCallback(ctx);
 });
 
 // هندلر برای دکمه انتخاب کنسول از منو
@@ -620,10 +630,7 @@ bot.callbackQuery("select_console_menu", async (ctx) => {
   const hasGamesValue = await hasGames(userId);
 
   if (!hasGamesValue) {
-    await ctx.answerCallbackQuery({
-      text: "❌ ابتدا باید حداقل یک بازی انتخاب کنید!",
-      show_alert: true,
-    });
+    await safeAnswerCallback(ctx, { text:"❌ ابتدا باید حداقل یک بازی انتخاب کنید!", show_alert: true });
     return await ctx.reply(
       "❌ شما هنوز هیچ بازی‌ای انتخاب نکرده‌اید. ابتدا باید حداقل یک بازی به لیست خود اضافه کنید.",
       {
@@ -644,13 +651,14 @@ bot.callbackQuery("select_console_menu", async (ctx) => {
   await ctx.reply("🎮 لطفاً کنسول مورد نظر خود را انتخاب کنید:", {
     reply_markup: keyboard,
   });
-  await ctx.answerCallbackQuery();
+  await safeAnswerCallback(ctx);
+
 });
 
 // هندلر برای بازگشت به منوی اصلی
 bot.callbackQuery("back_to_menu", async (ctx) => {
   await showFullMenu(ctx);
-  await ctx.answerCallbackQuery();
+  await safeAnswerCallback(ctx);
 });
 
 // هندلر برای نمایش راهنمای دستورات
@@ -681,7 +689,7 @@ bot.callbackQuery("commands_help", async (ctx) => {
     reply_markup: new InlineKeyboard().text("🔙 بازگشت به منو", "back_to_menu"),
   });
 
-  await ctx.answerCallbackQuery();
+  await safeAnswerCallback(ctx);
 });
 
 bot.callbackQuery("tutorial", async (ctx) => {
@@ -704,7 +712,7 @@ bot.callbackQuery("tutorial", async (ctx) => {
     });
   }
 
-  await ctx.answerCallbackQuery();
+  await safeAnswerCallback(ctx);
 });
 
 // ✅ جستجوی بازی‌ها
@@ -806,7 +814,7 @@ bot.callbackQuery(/^select_game:(\d+)$/, async (ctx) => {
   );
 
   if (existingGame.rows.length > 0) {
-    await ctx.answerCallbackQuery();
+    await safeAnswerCallback(ctx);
     return await ctx.reply("⚠️ این بازی قبلاً در لیست شما ثبت شده است!");
   }
 
@@ -825,7 +833,7 @@ bot.callbackQuery(/^select_game:(\d+)$/, async (ctx) => {
   ]);
   const gameTitle = game.rows[0].clean_title;
 
-  await ctx.answerCallbackQuery();
+  await safeAnswerCallback(ctx);
   await ctx.reply(`✅ بازی **${gameTitle}** به لیست شما اضافه شد.`, {
     parse_mode: "Markdown",
   });
@@ -860,7 +868,7 @@ bot.callbackQuery(/^select_game:(\d+)$/, async (ctx) => {
 // هندلر گزینه 1
 bot.callbackQuery("option_1", async (ctx) => {
   await ctx.reply("🚩 لطفاً نام بازی مورد نظر خود را وارد کنید:");
-  await ctx.answerCallbackQuery();
+  await safeAnswerCallback(ctx);
 });
 
 // هندلر گزینه 2
@@ -897,7 +905,7 @@ bot.callbackQuery("option_2", async (ctx) => {
     );
   }
 
-  await ctx.answerCallbackQuery();
+  await safeAnswerCallback(ctx);
 });
 
 // هندلر گزینه 3
@@ -908,10 +916,7 @@ bot.callbackQuery("option_3", async (ctx) => {
   const hasGamesValue = await hasGames(userId);
 
   if (!hasGamesValue) {
-    await ctx.answerCallbackQuery({
-      text: "❌ ابتدا باید حداقل یک بازی انتخاب کنید!",
-      show_alert: true,
-    });
+    await safeAnswerCallback(ctx, { text:"❌ ابتدا باید حداقل یک بازی انتخاب کنید!", show_alert: true });
     return await ctx.reply(
       "❌ شما هنوز هیچ بازی‌ای انتخاب نکرده‌اید. ابتدا باید حداقل یک بازی به لیست خود اضافه کنید.",
       {
@@ -932,7 +937,7 @@ bot.callbackQuery("option_3", async (ctx) => {
   await ctx.reply("🎮 لطفاً کنسول مورد نظر خود را انتخاب کنید:", {
     reply_markup: keyboard,
   });
-  await ctx.answerCallbackQuery();
+  await safeAnswerCallback(ctx);
 });
 
 // شروع ربات
