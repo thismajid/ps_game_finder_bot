@@ -465,7 +465,7 @@ bot.callbackQuery(/^console:(ps4|ps5)$/, async (ctx) => {
          AND ${priceColumn} IS NOT NULL
        ) AS distinct_posts
        ORDER BY RANDOM()
-       LIMIT 50`,
+       LIMIT 100`,
       [gameIds] // ارسال آرایه به عنوان پارامتر
     );
 
