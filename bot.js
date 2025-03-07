@@ -433,6 +433,7 @@ bot.command("select_console", async (ctx) => {
 bot.callbackQuery(/^console:(ps4|ps5)$/, async (ctx) => {
   const selectedConsole = ctx.match[1]; // دریافت "ps4" یا "ps5"
   const priceColumn = selectedConsole === "ps4" ? "price_ps4" : "price_ps5"; // تعیین ستون مناسب
+  const soldPriceColumn = selectedConsole === "ps4" ? "is_ps4_sold" : "is_ps5_sold";
   const userId = ctx.from.id;
 
   try {
@@ -476,6 +477,7 @@ bot.callbackQuery(/^console:(ps4|ps5)$/, async (ctx) => {
          JOIN posts p ON p.id = games_posts.post_id 
          WHERE game_id = ANY($1) 
          AND ${priceColumn} IS NOT NULL
+         AND ${soldPriceColumn} IS false
        ) AS distinct_posts
        ORDER BY RANDOM()
        LIMIT 100`,
