@@ -495,7 +495,7 @@ bot.callbackQuery(/^console:(ps4|ps5)$/, async (ctx) => {
 
     for (const post of postsResult.rows) {
       await ctx.reply(post.content); // ارسال پیام به کاربر
-      await new Promise(resolve => setTimeout(resolve, 100));
+      await new Promise(resolve => setTimeout(resolve, 50));
     }
 
     // 🛑 حذف لیست بازی‌های کاربر از دیتابیس
