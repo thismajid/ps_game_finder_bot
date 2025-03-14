@@ -286,6 +286,7 @@ function cleanGameTitle(title) {
     "Rise\\s*of\\s*the\\s*Tomb\\s*Raider":
       "Rise of the Tomb Raider: 20 Year Celebration",
     "Ratchet\\s*&\\s*Clank\\s*3": "Ratchet & Clank",
+    "Crash\\s*Bandicoot\\s*N. Sane\\s*Trilogy": "Crash Bandicoot N. Sane",
   };
 
   // Apply title mappings
