@@ -36,6 +36,29 @@ async function createTables() {
       CREATE EXTENSION IF NOT EXISTS pg_trgm;
       CREATE INDEX IF NOT EXISTS games_clean_title_trgm_idx ON games USING GIN (clean_title gin_trgm_ops);
       
+      -- بررسی وجود ستون‌های is_deleted و deleted_at
+      DO $$
+      BEGIN
+        -- بررسی ستون is_deleted
+        IF NOT EXISTS (
+          SELECT 1 FROM information_schema.columns 
+          WHERE table_name = 'posts' AND column_name = 'is_deleted'
+        ) THEN
+          ALTER TABLE posts ADD COLUMN is_deleted BOOLEAN DEFAULT FALSE;
+        END IF;
+
+        -- بررسی ستون deleted_at
+        IF NOT EXISTS (
+          SELECT 1 FROM information_schema.columns 
+          WHERE table_name = 'posts' AND column_name = 'deleted_at'
+        ) THEN
+          ALTER TABLE posts ADD COLUMN deleted_at TIMESTAMP DEFAULT NULL;
+        END IF;
+      EXCEPTION
+        -- اگر جدول posts هنوز وجود نداشته باشد، خطا را نادیده بگیر
+        WHEN undefined_table THEN NULL;
+      END $$;
+      
       CREATE TABLE IF NOT EXISTS posts (
         id INTEGER PRIMARY KEY,
         content TEXT NOT NULL,
@@ -46,7 +69,7 @@ async function createTables() {
         is_ps5_sold BOOLEAN DEFAULT FALSE,
         source_file TEXT,
         is_deleted BOOLEAN DEFAULT FALSE,
-        deleted_at TIMESTAMP,
+        deleted_at TIMESTAMP DEFAULT NULL,
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
         updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
       );
@@ -56,7 +79,8 @@ async function createTables() {
         post_id INTEGER REFERENCES posts(id),
         PRIMARY KEY (game_id, post_id)
       );
-
+      
+      -- ایجاد جدول تاریخچه پست‌های حذف شده
       CREATE TABLE IF NOT EXISTS deleted_posts_history (
         id SERIAL PRIMARY KEY,
         post_id INTEGER REFERENCES posts(id),
@@ -67,29 +91,29 @@ async function createTables() {
       CREATE EXTENSION IF NOT EXISTS fuzzystrmatch;
 
       CREATE OR REPLACE FUNCTION title_match_score(title1 text, title2 text) RETURNS float AS $$
-        DECLARE
-          words1 text[];
-          words2 text[];
-          common_count integer := 0;
-          diff_count integer := 0;
-        BEGIN
-          -- تبدیل عناوین به آرایه کلمات
-          SELECT string_to_array(lower(title1), ' ') INTO words1;
-          SELECT string_to_array(lower(title2), ' ') INTO words2;
-          
-          -- شمارش کلمات مشترک
-          SELECT COUNT(*) INTO common_count 
-          FROM (
-            SELECT UNNEST(words1) INTERSECT SELECT UNNEST(words2)
-          ) as common;
-          
-          -- محاسبه تفاوت‌ها
-          diff_count := (array_length(words1, 1) + array_length(words2, 1) - 2 * common_count);
-          
-          -- امتیاز نهایی: نسبت کلمات مشترک منهای جریمه برای تفاوت‌ها
-          RETURN (common_count::float / GREATEST(array_length(words1, 1), array_length(words2, 1)))
-                - (diff_count::float / GREATEST(array_length(words1, 1), array_length(words2, 1)) * 0.5);
-        END;
+      DECLARE
+        words1 text[];
+        words2 text[];
+        common_count integer := 0;
+        diff_count integer := 0;
+      BEGIN
+        -- تبدیل عناوین به آرایه کلمات
+        SELECT string_to_array(lower(title1), ' ') INTO words1;
+        SELECT string_to_array(lower(title2), ' ') INTO words2;
+        
+        -- شمارش کلمات مشترک
+        SELECT COUNT(*) INTO common_count 
+        FROM (
+          SELECT UNNEST(words1) INTERSECT SELECT UNNEST(words2)
+        ) as common;
+        
+        -- محاسبه تفاوت‌ها
+        diff_count := (array_length(words1, 1) + array_length(words2, 1) - 2 * common_count);
+        
+        -- امتیاز نهایی: نسبت کلمات مشترک منهای جریمه برای تفاوت‌ها
+        RETURN (common_count::float / GREATEST(array_length(words1, 1), array_length(words2, 1)))
+               - (diff_count::float / GREATEST(array_length(words1, 1), array_length(words2, 1)) * 0.5);
+      END;
       $$ LANGUAGE plpgsql;
     `);
 
