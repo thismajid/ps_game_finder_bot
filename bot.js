@@ -469,6 +469,7 @@ bot.callbackQuery(/^console:(ps4|ps5)$/, async (ctx) => {
     }
 
     // جستجوی پست‌های مرتبط با بازی‌ها و کنسول انتخابی
+    // اضافه کردن شرط is_deleted = FALSE به کوئری
     const postsResult = await pool.query(
       `SELECT id, content
        FROM (
@@ -478,6 +479,7 @@ bot.callbackQuery(/^console:(ps4|ps5)$/, async (ctx) => {
          WHERE game_id = ANY($1) 
          AND ${priceColumn} IS NOT NULL
          AND ${soldPriceColumn} IS false
+         AND p.is_deleted = FALSE
        ) AS distinct_posts
        ORDER BY RANDOM()
        LIMIT 100`,
