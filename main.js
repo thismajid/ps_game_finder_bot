@@ -45,6 +45,8 @@ async function createTables() {
         is_ps4_sold BOOLEAN DEFAULT FALSE,
         is_ps5_sold BOOLEAN DEFAULT FALSE,
         source_file TEXT,
+        is_deleted BOOLEAN DEFAULT FALSE,
+        deleted_at TIMESTAMP,
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
         updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
       );
@@ -55,33 +57,40 @@ async function createTables() {
         PRIMARY KEY (game_id, post_id)
       );
 
+      CREATE TABLE IF NOT EXISTS deleted_posts_history (
+        id SERIAL PRIMARY KEY,
+        post_id INTEGER REFERENCES posts(id),
+        deleted_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        reason TEXT
+      );
+
       CREATE EXTENSION IF NOT EXISTS fuzzystrmatch;
 
-        CREATE OR REPLACE FUNCTION title_match_score(title1 text, title2 text) RETURNS float AS $$
-  DECLARE
-    words1 text[];
-    words2 text[];
-    common_count integer := 0;
-    diff_count integer := 0;
-  BEGIN
-    -- تبدیل عناوین به آرایه کلمات
-    SELECT string_to_array(lower(title1), ' ') INTO words1;
-    SELECT string_to_array(lower(title2), ' ') INTO words2;
-    
-    -- شمارش کلمات مشترک
-    SELECT COUNT(*) INTO common_count 
-    FROM (
-      SELECT UNNEST(words1) INTERSECT SELECT UNNEST(words2)
-    ) as common;
-    
-    -- محاسبه تفاوت‌ها
-    diff_count := (array_length(words1, 1) + array_length(words2, 1) - 2 * common_count);
-    
-    -- امتیاز نهایی: نسبت کلمات مشترک منهای جریمه برای تفاوت‌ها
-    RETURN (common_count::float / GREATEST(array_length(words1, 1), array_length(words2, 1)))
-           - (diff_count::float / GREATEST(array_length(words1, 1), array_length(words2, 1)) * 0.5);
-  END;
-  $$ LANGUAGE plpgsql;
+      CREATE OR REPLACE FUNCTION title_match_score(title1 text, title2 text) RETURNS float AS $$
+        DECLARE
+          words1 text[];
+          words2 text[];
+          common_count integer := 0;
+          diff_count integer := 0;
+        BEGIN
+          -- تبدیل عناوین به آرایه کلمات
+          SELECT string_to_array(lower(title1), ' ') INTO words1;
+          SELECT string_to_array(lower(title2), ' ') INTO words2;
+          
+          -- شمارش کلمات مشترک
+          SELECT COUNT(*) INTO common_count 
+          FROM (
+            SELECT UNNEST(words1) INTERSECT SELECT UNNEST(words2)
+          ) as common;
+          
+          -- محاسبه تفاوت‌ها
+          diff_count := (array_length(words1, 1) + array_length(words2, 1) - 2 * common_count);
+          
+          -- امتیاز نهایی: نسبت کلمات مشترک منهای جریمه برای تفاوت‌ها
+          RETURN (common_count::float / GREATEST(array_length(words1, 1), array_length(words2, 1)))
+                - (diff_count::float / GREATEST(array_length(words1, 1), array_length(words2, 1)) * 0.5);
+        END;
+      $$ LANGUAGE plpgsql;
     `);
 
     console.log("Tables created successfully");
@@ -207,11 +216,11 @@ function cleanGameTitle(title) {
     "Call\\s*of\\s*Duty\\s*Modern\\s*Warfare\\s*(?:II|2)":
       "Call of Duty Modern Warfare II",
     "Call\\s*of\\s*Duty\\s*Modern\\s*Warfare": "Call of Duty Modern Warfare",
-    "Assassin’s\\s*Creed\\s*Odyssey\\s*GOLD": "Assassin's Creed Odyssey",
-    "Assassin’s\\s*Creed\\s*Mirage\\s*Master\\s*Assassin":
+    "Assassin's\\s*Creed\\s*Odyssey\\s*GOLD": "Assassin's Creed Odyssey",
+    "Assassin's\\s*Creed\\s*Mirage\\s*Master\\s*Assassin":
       "Assassin's Creed Mirage",
     "Call\\s*of\\s*Duty\\s*Vanguard-bundel": "Call of Duty Vanguard",
-    "Crash\\s*Bandicoot\\s*4\\s*It’s\\s*About\\s*Time": "Crash Bandicoot 4",
+    "Crash\\s*Bandicoot\\s*4\\s*It's\\s*About\\s*Time": "Crash Bandicoot 4",
     "DARK\\s*SOULS\\s*Ⅲ\\s*FIRE\\s*FADES": "DARK SOULS III",
     "Demon\\s*Slayer\\s*-Kimetsu\\s*no\\s*Yaiba\\s*Hinokami\\s*Chronicles":
       "Demon Slayer Kimetsu no Yaiba",
@@ -235,7 +244,7 @@ function cleanGameTitle(title) {
 
     "LEGO\\s*DC\\s*Super-Vilões": "LEGO DC Super-Villains",
     "LEGO\\s*MARVEL's\\s*Avengers": "LEGO Marvel",
-    "LEGO\\s*Marvel’s\\s*Avengers": "LEGO Marvel",
+    "LEGO\\s*Marvel's\\s*Avengers": "LEGO Marvel",
     "LEGO\\s*NINJAGO\\s*Movie\\s*Video\\s*Game": "LEGO NINJAGO Movie",
     "Metal\\s*Gear\\s*Solid\\s*V\\s*Experience":
       "LMETAL GEAR SOLID V DEFINITIVE EXPERIENCE",
@@ -254,24 +263,24 @@ function cleanGameTitle(title) {
     "SpongeBob\\s*SquarePants\\s*Battle\\s*For\\s*Bikini\\s*Bottom":
       "SpongeBob SquarePants",
     "STEEP\\s*GOLD": "STEEP",
-    "TOM\\s*CLANCY'S\\s*DIVISION": "Tom Clancy’s Division",
+    "TOM\\s*CLANCY'S\\s*DIVISION": "Tom Clancy's Division",
     "Tom\\s*Clancy's\\s*Rainbow\\s*Six(?:\\s*Siege)?":
       "Tom Clancy's Rainbow Six",
-    "Uncharted\\s*4\\s*A\\s*Thief['’]s\\s*End": "Uncharted 4 A Thief's End",
+    "Uncharted\\s*4\\s*A\\s*Thief['']s\\s*End": "Uncharted 4 A Thief's End",
     "Watch\\s*Dogs\\s*2": "Watch Dogs 2",
     WATCH_DOGS: "Watch Dogs",
     "WWE\\s*2K24(?:\\s*40th\\s*Anniversary\\s*of\\s*WrestleMania)?": "WWE 2K24",
     "EA\\s*SPORTS\\s*FC\\s*25(?:\\s*and.*)?": "EA SPORTS FC 25",
-    "Assassin’s\\s*Creed\\s*Chronicles\\s*China": "Assassin's Creed Chronicles",
-    "Assassin’s\\s*Creed\\s*Chronicles\\s*India": "Assassin's Creed Chronicles",
+    "Assassin's\\s*Creed\\s*Chronicles\\s*China": "Assassin's Creed Chronicles",
+    "Assassin's\\s*Creed\\s*Chronicles\\s*India": "Assassin's Creed Chronicles",
     "Battlefield\\s*1\\s*&\\s*Titanfall\\s*2": "Battlefield 1 e Titanfall 2",
     "Mass\\s*Effect\\s*Andromeda": "Mass Effect",
     "Mass\\s*Effect\\s*Andromeda\\s*–": "Mass Effect",
     "Mortal\\s*Kombat\\s*X\\s*\\+?\\s*XL": "Mortal Kombat X",
     TEKKEN7: "TEKKEN 7",
-    "Tom\\s*Clancy’s\\s*Rainbow\\s*Six\\s*Extraction":
+    "Tom\\s*Clancy's\\s*Rainbow\\s*Six\\s*Extraction":
       "Tom Clancy's Rainbow Six",
-    "Tom\\s*Clancy’s\\s*Rainbow\\s*Six\\s*Siege": "Tom Clancy's Rainbow Six",
+    "Tom\\s*Clancy's\\s*Rainbow\\s*Six\\s*Siege": "Tom Clancy's Rainbow Six",
     "Uncharted\\s*The\\s*Nathan\\s*Drake's": "Uncharted The Nathan Drake",
     "Call\\s*of\\s*Duty\\s*WWIIچ": "Call of Duty WWII",
     "Grand\\s*Theft\\s*Auto\\s*San\\s*Andreas\\s*–\\s*The":
@@ -402,7 +411,7 @@ function cleanGameTitle(title) {
     .replace(/\s*Gold Edition & Village Gold Edition/, "")
     .replace(/\s*Champions PS4/, "")
     .replace(/\s*A Realm Reborn/, "")
-    .replace(/\s*Online - Complete Collector’s Edition/, "")
+    .replace(/\s*Online - Complete Collector's Edition/, "")
     .replace(/\s*MULTIPLAYER: COMRADES/, "")
     .replace(/\s*biohazard/, "")
     .replace(/\s*Edition Ultime/, "")
@@ -511,7 +520,7 @@ function cleanGameTitle(title) {
     .replace(/^(.*?)\s*–\s*Traveler\s+Edition$/, "$1")
     .replace(/^(.*?)\s*–\s*Enhanced\s+Edition$/, "$1")
     .replace(/^(.*?)\s*–\s*Console\s+Edition$/, "$1")
-    .replace(/^(.*?)\s*–\s*DIRECTOR’S\s+CUT$/, "$1")
+    .replace(/^(.*?)\s*–\s*DIRECTOR'S\s+CUT$/, "$1")
     .replace(/^(.*?)\s*–\s*Ultimate\s+Bundle$/, "$1")
     .replace(/^(.*?)\s*–\s*Edition\s+Bundle$/, "$1")
     .replace(/^(.*?)\s*–\s*Seventy\s+Edition$/, "$1")
@@ -763,10 +772,11 @@ async function processPost(content, sourceFile) {
 
     // بررسی آیا پست قبلاً وجود داشته است
     const existingPost = await client.query(
-      "SELECT content FROM posts WHERE id = $1",
+      "SELECT content, is_deleted FROM posts WHERE id = $1",
       [postId]
     );
     const postExists = existingPost.rows.length > 0;
+    const wasDeleted = postExists && existingPost.rows[0].is_deleted;
 
     // پردازش محتوا
     const cleanContent = content
@@ -774,10 +784,21 @@ async function processPost(content, sourceFile) {
       .replace(/[=*]{4,}/g, "")
       .trim();
 
-    // اگر پست وجود دارد و محتوا تغییر نکرده است، پردازش را متوقف کنید
-    if (postExists && existingPost.rows[0].content === cleanContent) {
+    // اگر پست وجود دارد و محتوا تغییر نکرده است و حذف نشده، پردازش را متوقف کنید
+    if (postExists && existingPost.rows[0].content === cleanContent && !wasDeleted) {
       console.log(`Post ${postId} has not changed, skipping update.`);
       return;
+    }
+
+    // اگر پست قبلاً حذف شده بود و اکنون دوباره ظاهر شده است
+    if (wasDeleted) {
+      console.log(`Post ${postId} was previously deleted and is now back.`);
+      // ثبت این رویداد در تاریخچه
+      await client.query(
+        `INSERT INTO deleted_posts_history (post_id, reason) 
+         VALUES ($1, $2)`,
+        [postId, "Post restored"]
+      );
     }
 
     // استخراج اطلاعات پست
@@ -820,8 +841,8 @@ async function processPost(content, sourceFile) {
     // درج یا بروزرسانی پست در دیتابیس
     // updated_at به صورت خودکار توسط تریگر بروزرسانی می‌شود
     await client.query(
-      `INSERT INTO posts (id, content, region, price_ps4, price_ps5, is_ps4_sold, is_ps5_sold, source_file, created_at) 
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, CURRENT_TIMESTAMP)
+      `INSERT INTO posts (id, content, region, price_ps4, price_ps5, is_ps4_sold, is_ps5_sold, source_file, is_deleted, deleted_at, created_at) 
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, FALSE, NULL, CURRENT_TIMESTAMP)
        ON CONFLICT (id) DO UPDATE SET
        content = EXCLUDED.content,
        region = EXCLUDED.region,
@@ -829,7 +850,9 @@ async function processPost(content, sourceFile) {
        price_ps5 = EXCLUDED.price_ps5,
        is_ps4_sold = EXCLUDED.is_ps4_sold,
        is_ps5_sold = EXCLUDED.is_ps5_sold,
-       source_file = EXCLUDED.source_file`,
+       source_file = EXCLUDED.source_file,
+       is_deleted = FALSE,
+       deleted_at = NULL`,
       [
         postId,
         cleanContent,
@@ -868,7 +891,9 @@ async function processPost(content, sourceFile) {
       }
     }
 
-    if (postExists) {
+    if (wasDeleted) {
+      console.log(`Restored post ${postId} from ${sourceFile}`);
+    } else if (postExists) {
       console.log(`Updated post ${postId} from ${sourceFile}`);
     } else {
       console.log(`Added new post ${postId} from ${sourceFile}`);
@@ -880,7 +905,6 @@ async function processPost(content, sourceFile) {
 
 async function processFile(filePath) {
   try {
-    // const content = await fs.readFile(filePath, "utf8");
     const content = await fs.readFile(filePath, "utf8");
     const cleanContent = content.replace(/\\([^\\])/g, "$1");
     const posts = cleanContent
@@ -890,6 +914,39 @@ async function processFile(filePath) {
 
     const fileName = filePath.split(/[\\/]/).pop();
 
+    // ایجاد مجموعه‌ای از شناسه‌های پست‌های موجود در فایل فعلی
+    const currentPostIds = new Set();
+    for (const post of posts) {
+      const idMatch = post.match(/id:\s*(\d+)/i);
+      if (idMatch) {
+        currentPostIds.add(parseInt(idMatch[1]));
+      }
+    }
+
+    // بررسی پست‌های حذف شده در این فایل
+    const previousPosts = await client.query(
+      "SELECT id FROM posts WHERE source_file = $1 AND is_deleted = FALSE",
+      [fileName]
+    );
+    
+    for (const row of previousPosts.rows) {
+      if (!currentPostIds.has(row.id)) {
+        // پست در فایل فعلی وجود ندارد، بنابراین به عنوان حذف شده علامت‌گذاری می‌شود
+        console.log(`Marking post ${row.id} as deleted (not found in current file)`);
+        await client.query(
+          `UPDATE posts SET is_deleted = TRUE, deleted_at = CURRENT_TIMESTAMP WHERE id = $1`,
+          [row.id]
+        );
+        
+        // ثبت در تاریخچه حذف
+        await client.query(
+          `INSERT INTO deleted_posts_history (post_id, reason) VALUES ($1, $2)`,
+          [row.id, "Not found in source file"]
+        );
+      }
+    }
+
+    // پردازش پست‌های جدید یا بروزرسانی شده
     for (const post of posts) {
       await processPost(post, fileName);
     }
@@ -897,6 +954,56 @@ async function processFile(filePath) {
     console.log(`Finished processing: ${fileName}`);
   } catch (error) {
     console.error(`Error processing file ${filePath}:`, error);
+  }
+}
+
+// تابع جدید برای بررسی پست‌های حذف شده بین فایل‌های مختلف
+async function checkDeletedPosts() {
+  try {
+    // لیست همه پست‌های فعال
+    const activePosts = new Set();
+    
+    // بررسی همه فایل‌ها و جمع‌آوری شناسه‌های پست‌های فعال
+    for (const filePath of INPUT_FILES) {
+      const content = await fs.readFile(filePath, "utf8");
+      const cleanContent = content.replace(/\\([^\\])/g, "$1");
+      const posts = cleanContent
+        .split(/(={10,}|-{10,})/g)
+        .map((post) => post.trim())
+        .filter((post) => post && !post.match(/={10,}|-{10,}/));
+      
+      for (const post of posts) {
+        const idMatch = post.match(/id:\s*(\d+)/i);
+        if (idMatch) {
+          activePosts.add(parseInt(idMatch[1]));
+        }
+      }
+    }
+    
+    // بررسی پست‌هایی که در دیتابیس فعال هستند اما در فایل‌های فعلی وجود ندارند
+    const allDbPosts = await client.query(
+      "SELECT id FROM posts WHERE is_deleted = FALSE"
+    );
+    
+    for (const row of allDbPosts.rows) {
+      if (!activePosts.has(row.id)) {
+        console.log(`Post ${row.id} not found in any source file, marking as deleted`);
+        await client.query(
+          `UPDATE posts SET is_deleted = TRUE, deleted_at = CURRENT_TIMESTAMP WHERE id = $1`,
+          [row.id]
+        );
+        
+        // ثبت در تاریخچه حذف
+        await client.query(
+          `INSERT INTO deleted_posts_history (post_id, reason) VALUES ($1, $2)`,
+          [row.id, "Not found in any source file"]
+        );
+      }
+    }
+    
+    console.log("Completed checking for deleted posts across all files");
+  } catch (error) {
+    console.error("Error checking deleted posts:", error);
   }
 }
 
@@ -912,9 +1019,36 @@ async function main() {
       console.log(`\nProcessing file: ${filePath}`);
       await processFile(filePath);
     }
+    
+    // بررسی پست‌های حذف شده در همه فایل‌ها
+    await checkDeletedPosts();
 
     console.log("\nProcessing completed");
     console.log(`Total unique games: ${uniqueGames.size}`);
+    
+    // نمایش آمار پست‌های حذف شده
+    const deletedStats = await client.query(
+      "SELECT COUNT(*) as count FROM posts WHERE is_deleted = TRUE"
+    );
+    console.log(`Total deleted posts: ${deletedStats.rows[0].count}`);
+    
+    // نمایش آخرین پست‌های حذف شده
+    const recentDeleted = await client.query(
+      `SELECT p.id, p.deleted_at, dph.reason
+       FROM posts p
+       JOIN deleted_posts_history dph ON p.id = dph.post_id
+       WHERE p.is_deleted = TRUE
+       ORDER BY p.deleted_at DESC
+       LIMIT 5`
+    );
+    
+    if (recentDeleted.rows.length > 0) {
+      console.log("\nRecently deleted posts:");
+      recentDeleted.rows.forEach(row => {
+        console.log(`Post ID: ${row.id}, Deleted at: ${row.deleted_at}, Reason: ${row.reason}`);
+      });
+    }
+    
   } catch (error) {
     console.error("Main error:", error);
   } finally {
