@@ -880,7 +880,7 @@ async function processPost(content, sourceFile) {
       [
         postId,
         cleanContent,
-        regionMatch?.[1] || null,
+        regionMatch && regionMatch.lenght > 0 ? regionMatch?.[1] || null,
         pricePS4,
         pricePS5,
         isPS4Sold,
