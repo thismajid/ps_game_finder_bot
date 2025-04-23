@@ -34,12 +34,12 @@ bot.use(
 
 // تعریف کانال‌ها
 const requiredChannels = [
-  { id: "-1001069711199", invite_link: "https://t.me/+SpQ0e29I2d05Yzg0" },
-  { id: "-1001010895977", invite_link: "https://t.me/+PEEMaXuNHvpcoPcU" },
-  { id: "-1001119154763", invite_link: "https://t.me/+ihfK56m0tckwODM0" },
-  { id: "-1001056044991", invite_link: "https://t.me/+_WbXvrPeM6RmNWQ0" },
-  { id: "-1001219426374", invite_link: "https://t.me/+PLvYzP0XwGs1Nzdk" },
-  { id: "-1001066763571", invite_link: "https://t.me/+fmw62SBNF1djYjdk" },
+  { id: "-1001833802085", invite_link: "https://t.me/+eZQpn5FmTc1mZjc0", title: "PS-Station Market" },
+  { id: "-1001224810922", invite_link: "https://t.me/+O8ddDl27xoU3MDc8", title: "PlayStation Kingdom" },
+  { id: "-1001119154763", invite_link: "https://t.me/+QrTyS8HfgU3KxFVv", title: "PS5Account's Iran" },
+  { id: "-1001069711199", invite_link: "https://t.me/+P8J_X2rmBcsHst1b", title: "ToPS4Account" },
+  { id: "-1001056044991", invite_link: "https://t.me/+ZPC-tOuherdjY2Q0", title: "Acc021" },
+  { id: "-1001010895977", invite_link: "https://t.me/+PEEMaXuNHvpcoPcU", title: "🇮🇷PS4 Buy ACCOUNT🇮🇷" },
 ];
 
 async function safeAnswerCallback(ctx, options = {}) {
