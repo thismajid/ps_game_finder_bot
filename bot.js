@@ -150,9 +150,21 @@ async function createTables() {
       );
     `);
 
-    await pool.query(
-      `ALTER TABLE user_games ADD COLUMN deleted_at TIMESTAMP DEFAULT NULL;`
-    );
+    // بررسی وجود ستون deleted_at قبل از اضافه کردن
+    const columnCheck = await pool.query(`
+      SELECT column_name 
+      FROM information_schema.columns 
+      WHERE table_name = 'user_games' AND column_name = 'deleted_at';
+    `);
+
+    if (columnCheck.rows.length === 0) {
+      await pool.query(`
+        ALTER TABLE user_games ADD COLUMN deleted_at TIMESTAMP DEFAULT NULL;
+      `);
+      console.log("✅ ستون deleted_at به جدول user_games اضافه شد.");
+    } else {
+      console.log("✅ ستون deleted_at از قبل وجود دارد.");
+    }
 
     console.log("✅ جداول ایجاد یا بررسی شدند.");
   } catch (error) {
@@ -496,8 +508,26 @@ bot.callbackQuery(/^console:(ps4|ps5)$/, async (ctx) => {
     }
 
     for (const post of postsResult.rows) {
-      await ctx.reply(post.content); // ارسال پیام به کاربر
-      await new Promise(resolve => setTimeout(resolve, 250));
+      try {
+        await ctx.reply(post.content); // ارسال پیام به کاربر
+        await new Promise(resolve => setTimeout(resolve, 1000)); // تأخیر 1 ثانیه بین هر پیام
+      } catch (error) {
+        if (error.error_code === 429) {
+          const retryAfter = error.parameters.retry_after || 60; // مدت زمان انتظار از پاسخ تلگرام
+          console.log(`Rate limit exceeded, retrying after ${retryAfter} seconds`);
+          await new Promise(resolve => setTimeout(resolve, retryAfter * 1000)); // منتظر ماندن
+          await ctx.reply(post.content); // تلاش مجدد برای ارسال پیام
+        } else {
+          console.error("Error sending message:", error);
+          await ctx.reply("مشکلی در ارسال پیام رخ داد. لطفاً دوباره تلاش کنید.", {
+            reply_markup: new InlineKeyboard().text(
+              "🔙 بازگشت به منو",
+              "back_to_menu"
+            ),
+          });
+          break; // در صورت خطای دیگر، حلقه را متوقف می‌کنیم
+        }
+      }
     }
 
     // 🛑 حذف لیست بازی‌های کاربر از دیتابیس
