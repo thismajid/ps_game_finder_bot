@@ -20,6 +20,9 @@ const pool = new Pool({
   database: process.env.DB_NAME,
   password: process.env.DB_PASSWORD,
   port: process.env.DB_PORT,
+  max: 20, // حداکثر تعداد اتصالات
+  idleTimeoutMillis: 30000, // زمان انتظار برای بستن اتصال غیرفعال
+  connectionTimeoutMillis: 2000, // زمان انتظار برای اتصال
 });
 
 const bot = new Bot(process.env.BOT_TOKEN);
@@ -169,6 +172,11 @@ async function createTables() {
     console.log("✅ جداول ایجاد یا بررسی شدند.");
   } catch (error) {
     console.error("❌ خطا در ایجاد جداول:", error);
+    if (error.message.includes("Connection terminated unexpectedly")) {
+      console.log("تلاش مجدد برای اتصال به دیتابیس...");
+      await new Promise(resolve => setTimeout(resolve, 5000)); // تأخیر 5 ثانیه
+      await createTables(); // تلاش مجدد
+    }
   }
 }
 
